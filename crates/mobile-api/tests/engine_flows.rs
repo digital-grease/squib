@@ -199,6 +199,17 @@ impl Sim {
         panic!("DSP worker did not process frame {end}");
     }
 
+    fn settle_persisted(&mut self) -> EngineView {
+        for _ in 0..1000 {
+            std::thread::sleep(Duration::from_millis(2));
+            let v = self.run_ms(10);
+            if v.persist.as_deref() == Some("saved") {
+                return v;
+            }
+        }
+        panic!("run never durably saved; last {:?}", self.views.last().map(|v| (&v.phase, &v.persist)));
+    }
+
     fn settle(&mut self, phase: &str) -> EngineView {
         for _ in 0..300 {
             // Storage acknowledges asynchronously in real time; give it a moment.
@@ -439,7 +450,8 @@ fn cancel_before_cue_records_attempt_only() {
     s.eng.cancel("c".into(), s.now()).unwrap();
     let v = s.settle("cancelled");
     assert_eq!(v.outcome.as_deref(), Some("cancelled"));
-    s.run_ms(100);
+    // The attempt record is written asynchronously; read it only after the durable ack.
+    s.settle_persisted();
     assert_eq!(s.eng.list_runs(5).unwrap()[0].outcome.as_deref(), Some("cancelled"));
 }
 
