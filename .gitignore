@@ -1,0 +1,12 @@
+/target/
+**/build/
+.gradle/
+local.properties
+*.iml
+.idea/
+apps/android/app/src/main/jniLibs/
+apps/android/app/src/main/generated/
+*.db
+*.db-wal
+*.db-shm
+/out/

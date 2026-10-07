@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+    "crates/timing",
+    "crates/storage",
+    "crates/mobile-api",
+    "tools/replay",
+    "tools/uniffi-bindgen",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+# License intentionally unset: the owner has not selected one (docs/squib/12).
+
+[workspace.dependencies]
+squib-domain = { path = "crates/domain" }
+squib-timing = { path = "crates/timing" }
+squib-storage = { path = "crates/storage" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+thiserror = "=2.0.21"
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+rustfft = "=6.4.1"
+crossbeam-channel = "=0.5.17"
+crossbeam-queue = "=0.3.14"
+uuid = { version = "=1.27.0", features = ["v4"] }
+uniffi = "=0.32.2"
+jni-sys = "=0.4.1"
+hound = "=3.5.1"
+
+[profile.release]
+debug = 1
+panic = "unwind"
