@@ -118,6 +118,9 @@ pub struct ArmRequest {
     pub now_utc_ms: i64,
     pub tz_offset_min: i32,
     pub app_build: String,
+    /// Capture rate the platform expects to negotiate (scopes route signature and
+    /// calibration). A different actual rate at capture start fails the run.
+    pub expected_rate_hz: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

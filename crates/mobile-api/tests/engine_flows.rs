@@ -52,6 +52,7 @@ struct Sim {
     start_cue_frame: Option<i64>,
     drop_block_at: Option<u64>,
     capture_route: RouteReport,
+    expected_rate: u32,
     pub views: Vec<EngineView>,
     utc: i64,
 }
@@ -72,6 +73,7 @@ impl Sim {
             start_cue_frame: None,
             drop_block_at: None,
             capture_route: route(),
+            expected_rate: RATE,
             views: vec![],
             utc: 1_700_000_000_000,
         }
@@ -95,6 +97,7 @@ impl Sim {
             now_utc_ms: self.utc,
             tz_offset_min: -300,
             app_build: "test".into(),
+            expected_rate_hz: self.expected_rate,
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
         self.handle_effects(&v.effects.clone());
@@ -363,6 +366,32 @@ fn a05_route_differing_from_preflight_is_not_silently_used() {
     assert!(!pf.can_arm, "muted cue cannot be heard; volume is never overridden");
     let pf = s.eng.preflight(Mode::PhoneLive, RouteReport { mic_permission: false, ..route() }, RATE);
     assert!(!pf.can_arm && pf.messages[0].contains("Par-only"));
+}
+
+#[test]
+fn calibration_and_route_signature_use_expected_rate() {
+    // A device that negotiates a different rate than expected fails safely at capture.
+    let mut s = Sim::new("rate");
+    s.expected_rate = 44_100;
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    let v = s.eng.poll(s.now());
+    assert_eq!(v.phase, "failed", "48 kHz capture must not run under a 44.1 kHz signature");
+    // Matching expectation arms normally.
+    let mut s = Sim::new("rate-ok");
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    s.settle("running");
+}
+
+#[test]
+fn audio_focus_loss_interrupts() {
+    let mut s = Sim::new("focus");
+    s.arm(Mode::ParOnly, StartDelay::Instant, vec![], None);
+    s.settle("running");
+    let v = s.eng.lifecycle(LifecycleEvent::AudioFocusLost, s.now());
+    assert_eq!(v.phase, "interrupted");
+    assert_eq!(v.interrupt_reason.as_deref(), Some("Audio focus lost"));
+    let v = s.settle("saved");
+    assert_eq!(v.outcome.as_deref(), Some("interrupted"));
 }
 
 #[test]

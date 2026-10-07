@@ -759,6 +759,9 @@ impl SquibEngine {
         if g.machine.phase != Phase::Ready {
             return Err(rejected("a run is already in progress"));
         }
+        if !(8_000..=192_000).contains(&req.expected_rate_hz) {
+            return Err(SquibError::Invalid(format!("unsupported expected rate {} Hz", req.expected_rate_hz)));
+        }
         let policy: DelayPolicy = req.delay.into();
         policy.validate().map_err(rejected)?;
         let mode: SourceMode = req.mode.into();
@@ -768,7 +771,7 @@ impl SquibEngine {
         if mode == SourceMode::PhoneLive {
             let mut d = DetectorConfig::default();
             if let Some(cid) = &req.calibration_id
-                && let Some(sig) = route.as_ref().map(|r| r.signature(48_000))
+                && let Some(sig) = route.as_ref().map(|r| r.signature(req.expected_rate_hz))
                 && let Ok(Some(c)) = self.read().latest_calibration(&sig)
                 && &c.id == cid
             {
@@ -795,7 +798,11 @@ impl SquibEngine {
             par_cue_template: CueKind::Par.template_version().into(),
             detector,
             calibration_profile_id: calibration_id,
-            route_signature: if mode == SourceMode::PhoneLive { route.as_ref().map(|r| r.signature(48_000)) } else { None },
+            route_signature: if mode == SourceMode::PhoneLive {
+                route.as_ref().map(|r| r.signature(req.expected_rate_hz))
+            } else {
+                None
+            },
             shooter_id: squib_storage::DEFAULT_SHOOTER_ID.into(),
             drill_version_id: None,
             equipment_version_id: None,

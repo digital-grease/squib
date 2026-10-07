@@ -2,6 +2,8 @@ package net.digitalgrease.squib.core
 
 import android.app.Application
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -158,6 +160,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             nowUtcMs = System.currentTimeMillis(),
             tzOffsetMin = tz(),
             appBuild = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+            expectedRateHz = inspector.expectedRateHz().toUInt(),
         )
         armWith(req)
     }
@@ -177,6 +180,10 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                     _message.value = pf.messages.firstOrNull() ?: "This route cannot be used for live timing."
                     return@launch
                 }
+            }
+            if (!requestFocus()) {
+                _message.value = "Another app is using audio (for example a call), so cues may not be heard. Try again when it stops."
+                return@launch
             }
             try {
                 lastArm = req
@@ -233,6 +240,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                 val idle = !v.active && v.phase !in setOf("completing", "interrupted", "save_pending") && _probe.value == null &&
                     capture == null
                 if (idle) {
+                    abandonFocus()
                     refreshHistory()
                     break
                 }
@@ -317,6 +325,44 @@ class SquibController(app: Application) : AndroidViewModel(app) {
         c.start(rate, audioManager)
     }
 
+    // ---- Audio focus -------------------------------------------------------------------
+
+    /**
+     * Transient focus for the duration of a run. Losing it (a call, another app taking
+     * audio) interrupts the run: cues may be inaudible and the microphone may be shared.
+     * Ducking requests from others are ignored; Squib never changes volume.
+     */
+    private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build(),
+        )
+        .setWillPauseWhenDucked(false)
+        .setOnAudioFocusChangeListener { change ->
+            if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                viewModelScope.launch(control) {
+                    if (_view.value.active) apply(engine.lifecycle(LifecycleEvent.AUDIO_FOCUS_LOST, System.nanoTime()))
+                }
+            }
+        }
+        .build()
+    private var hasFocus = false
+
+    private fun requestFocus(): Boolean {
+        if (hasFocus) return true
+        hasFocus = audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return hasFocus
+    }
+
+    private fun abandonFocus() {
+        if (hasFocus) {
+            audioManager.abandonAudioFocusRequest(focusRequest)
+            hasFocus = false
+        }
+    }
+
     // ---- Review ----------------------------------------------------------------------
 
     suspend fun loadReview(runId: String): Result<ReviewView> = withContext(control) {
@@ -368,6 +414,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     fun coreVersions(): List<String> = net.digitalgrease.squib.core.coreVersions()
 
     override fun onCleared() {
+        abandonFocus()
         capture?.stop()
         cuePlayer.release()
         cueThread.shutdown()
