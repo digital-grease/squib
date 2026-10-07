@@ -51,7 +51,7 @@ fun SquibTheme(content: @Composable () -> Unit) {
 }
 
 /** Seconds with two decimals. Display precision is not measured accuracy. */
-fun fmtSec(ns: Long?): String = ns?.let { String.format(Locale.US, "%.2f s", it / 1e9) } ?: "—"
+fun fmtSec(ns: Long?): String = ns?.let { String.format(Locale.US, "%.2f s", it / 1e9) } ?: "n/a"
 
 fun fmtDate(utcMs: Long): String = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(utcMs))
 
@@ -84,7 +84,7 @@ fun timestampQualityLabel(q: String?): String = when (q) {
     "provisional_sample_clock" -> "Sample clock (single anchor)"
     "approximate" -> "Approximate clock (delivery-based)"
     "unavailable" -> "Clock mapping unavailable"
-    null -> "—"
+    null -> "n/a"
     else -> q
 }
 

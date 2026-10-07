@@ -1,14 +1,53 @@
 # Squib
 
-Offline-first shot/par timer and training journal. **No equipment required. Better equipment supported.**
+Squib turns an Android phone into a practice timer for shooting sports. It is built to be useful with nothing but the phone you already own: no account, no internet connection, and no extra equipment.
 
-Status: M0/M1 prototype. Par-only timing is usable; live acoustic shot timing is **Experimental** and has not been tested on a physical device or field-qualified. See `docs/implementation/m0-m1-report.md`.
+**No equipment required. Better equipment supported.**
 
-## Layout
+## What it does
+
+- **Par timer.** Set a start delay (instant, fixed, or random), add one or more par times, and press Arm. The phone plays a start beep after the delay and a beep at each par time. This mode never uses the microphone.
+- **Shot timing (experimental).** The phone listens for its own start beep and for shots, then shows your first-shot time, the splits between shots, and the total.
+- **Review and correct.** After a run you can look at every detected shot, keep or reject uncertain ones, add a shot the phone missed, or nudge a time. Your corrections are saved as a new version; the original detections are never thrown away.
+- **History.** Every run is saved on the phone with its result, including runs that were cancelled or interrupted.
+- **Setup help.** A sensitivity check measures how loud your surroundings are, and a cue test confirms the microphone can hear the start beep before you rely on it.
+
+## Current status
+
+Squib is an early prototype and is not yet available in any app store.
+
+- The par timer works.
+- Shot timing works in testing on a computer and in the Android emulator, but it has **not yet been tested on a real phone at a real range**. Treat its times as experimental until that testing is done.
+- Squib does not claim any particular accuracy. It labels uncertain results, interrupted runs, and setups it cannot vouch for instead of guessing.
+
+## Privacy
+
+- No account, no ads, no tracking, and no internet access: the app does not request network permission at all.
+- Squib never records or saves audio. Sound is analyzed in memory and discarded; only shot times and a coarse loudness outline are kept.
+- The microphone is requested only when you choose shot timing, sensitivity setup, or the cue test. The par timer never asks for it.
+- History stays on your phone. It is not included in Android backups yet, so it does not move to a new phone. Export is planned.
+
+## Planned
+
+Range conditions (weather, pressure, elevation) with clear sources, drill recipes, practice scoring, and export/backup of your history.
+
+## License
+
+Squib is free software, licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). You can use, study, change, and share it. If you distribute a modified version, or run one as a network service, you must share your source code under the same license.
+
+---
+
+## Technical details
+
+### Architecture
+
+A shared Rust core holds all timing logic, shot detection, the run state machine, and the SQLite journal. The Android app (Kotlin, Jetpack Compose) handles permissions, audio capture and playback, and the screens. Control calls cross into Rust through UniFFI; audio samples cross through a small JNI bridge into a bounded, preallocated queue processed on its own thread.
+
+Timing comes from audio sample positions, not from when the app happens to receive audio. When a run's start beep and shots are captured in the same recording, the times between them are exact sample counts. Raw audio exists only in short-lived memory buffers.
+
+### Layout
 
 ```text
-docs/squib/               handoff specification (01-12) and decisions/ (ADR-014..022)
-docs/implementation/      milestone reports
 crates/domain/            run config, states, quality events, candidates, revisions, results
 crates/timing/            clock mapping, capture integrity, cue matching, detector, run state machine, replay
 crates/storage/           SQLite repository, migrations, recovery
@@ -20,11 +59,11 @@ fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 man
 scripts/                  Android core build, emulator UI driver
 ```
 
-## Requirements
+### Requirements
 
-Rust 1.95.0 with `aarch64-linux-android` and `x86_64-linux-android` targets, `cargo-ndk`, Android SDK (platform 37, build-tools) and NDK 28.2.13676358 under `$ANDROID_HOME` (default `~/Android/Sdk`), JDK 21 (Gradle can provision it).
+Rust 1.95.0 with the `aarch64-linux-android` and `x86_64-linux-android` targets, `cargo-ndk`, the Android SDK (platform 37, build-tools) and NDK 28.2.13676358 under `$ANDROID_HOME` (default `~/Android/Sdk`), and JDK 21 (Gradle can provision it). Minimum Android version is 8.0 (API 26).
 
-## Build and test
+### Build and test
 
 ```sh
 # Shared core
@@ -48,10 +87,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 `-PsquibSkipRust=true` reuses previously built native libraries. `-PsquibRustProfile=debug` builds the core unoptimized.
 
-## Privacy defaults
+### Evidence so far
 
-No account, no network permission, no telemetry. Raw microphone audio is processed in bounded memory and discarded; only a coarse 10 ms energy envelope, detections, and quality events are stored. The journal is excluded from OS backup until portable export ships (ADR-016).
-
-## License
-
-Not selected yet (owner decision).
+Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come.

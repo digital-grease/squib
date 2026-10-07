@@ -209,7 +209,7 @@ private fun StatusPanel(v: EngineView) {
     val (title, detail) = when (v.phase) {
         "ready" -> "Ready" to "Arm when in position."
         "preparing" -> "Preparing" to if (v.mode == Mode.PHONE_LIVE) "Opening microphone and measuring ambient sound…" else "Saving run setup…"
-        "armed" -> "Armed — wait for the start cue" to "The start comes after the delay. No countdown is shown."
+        "armed" -> "Armed: wait for the start cue" to "The start comes after the delay. No countdown is shown."
         "awaiting_cue" -> "Start cue" to "Listening for the cue…"
         "running" -> "GO" to if (v.mode == Mode.PHONE_LIVE) "Shots detected: ${v.acceptedCount}" +
             (if (v.uncertainCount > 0u) " (+${v.uncertainCount} uncertain)" else "") else "Par timer running"

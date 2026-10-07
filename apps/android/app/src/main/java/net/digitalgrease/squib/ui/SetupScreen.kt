@@ -94,7 +94,7 @@ fun SetupScreen(c: SquibController, onRequestMic: (then: () -> Unit) -> Unit, on
             Text("Queue: capacity ${d.queueCapacityBlocks} blocks, high water ${d.queueHighWaterBlocks}, overflows ${d.queueOverflows}")
             Text("Clock: ${timestampQualityLabel(d.timestampQuality)}; anchors ok ${d.anchorsAccepted}, rejected ${d.anchorsRejected}")
             d.driftPpm?.let { Text(String.format(Locale.US, "Clock drift vs nominal: %.1f ppm", it)) }
-            Text("Delivery delay mean ${d.deliveryMeanNs?.div(1_000_000) ?: "—"} ms, max ${d.deliveryMaxNs / 1_000_000} ms (affects display only)")
+            Text("Delivery delay mean ${d.deliveryMeanNs?.div(1_000_000) ?: "n/a"} ms, max ${d.deliveryMaxNs / 1_000_000} ms (affects display only)")
         }
         Spacer(Modifier.height(8.dp))
         c.coreVersions().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }

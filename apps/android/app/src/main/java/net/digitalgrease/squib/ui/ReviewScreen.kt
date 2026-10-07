@@ -84,10 +84,10 @@ fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat
 
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
-                LabeledValue("Shots", r.count.toString() + (r.expectedCount?.let { " (expected $it — hint only)" } ?: ""))
+                LabeledValue("Shots", r.count.toString() + (r.expectedCount?.let { " (expected $it, hint only)" } ?: ""))
                 LabeledValue("First shot", if (r.originResolved) fmtSec(r.firstNs) else "Unavailable (no start reference)")
                 LabeledValue("Last shot", if (r.originResolved) fmtSec(r.lastNs) else "Unavailable")
-                LabeledValue("Splits", if (r.splitsNs.isEmpty()) "—" else r.splitsNs.joinToString("  ") { fmtSec(it).removeSuffix(" s") } + " s")
+                LabeledValue("Splits", if (r.splitsNs.isEmpty()) "n/a" else r.splitsNs.joinToString("  ") { fmtSec(it).removeSuffix(" s") } + " s")
                 if (r.zeroSplits > 0u) Text("${r.zeroSplits} identical timestamps: insufficient resolution", color = MaterialTheme.colorScheme.error)
             }
         }
@@ -98,7 +98,7 @@ fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat
             Text("Quality", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             r.quality.forEach { q ->
                 Text("• ${q.label}${if (q.severity == "integrity") " (interrupts run)" else ""}" +
-                    (q.timelineNs?.let { " at ${fmtSec(it)}" } ?: "") + (if (q.detail.isNotBlank()) " — ${q.detail}" else ""))
+                    (q.timelineNs?.let { " at ${fmtSec(it)}" } ?: "") + (if (q.detail.isNotBlank()) ": ${q.detail}" else ""))
             }
         }
 
