@@ -10,3 +10,4 @@ apps/android/app/src/main/generated/
 *.db-wal
 *.db-shm
 /out/
+/docs/
