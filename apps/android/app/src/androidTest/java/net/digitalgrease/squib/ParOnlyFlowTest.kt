@@ -31,6 +31,7 @@ class ParOnlyFlowTest {
             PackageManager.PERMISSION_GRANTED,
             ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO),
         )
+        rule.resetTimer()
         rule.onNodeWithTag("mode_par").performClick()
         rule.onNodeWithTag("delay_instant").performClick()
         rule.onNodeWithTag("arm").performScrollTo().performClick()
