@@ -1,0 +1,17 @@
+{
+  "name": "basic_5_shots_48k",
+  "description": "Start cue then five well separated impulses.",
+  "sample_rate_hz": 48000,
+  "frames": 192000,
+  "start_cue_onset": 48000,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    79200,
+    95040,
+    109920,
+    125280,
+    141600
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}

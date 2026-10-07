@@ -1,0 +1,14 @@
+{
+  "name": "no_cue_loud_transient",
+  "description": "No cue: a loud impulse in the cue window must not become the start (A04).",
+  "sample_rate_hz": 48000,
+  "frames": 144000,
+  "start_cue_onset": null,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    50400,
+    76800
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}

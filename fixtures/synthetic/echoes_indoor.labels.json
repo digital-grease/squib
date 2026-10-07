@@ -1,0 +1,22 @@
+{
+  "name": "echoes_indoor",
+  "description": "Impulses with reflections at 18 ms (−10 dB) and 41 ms (−14 dB).",
+  "sample_rate_hz": 48000,
+  "frames": 168000,
+  "start_cue_onset": 38400,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    72000,
+    91200,
+    115200
+  ],
+  "echo_onsets": [
+    72864,
+    73968,
+    92064,
+    93168,
+    116064,
+    117168
+  ],
+  "clipped": false
+}

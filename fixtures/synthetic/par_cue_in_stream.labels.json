@@ -1,0 +1,16 @@
+{
+  "name": "par_cue_in_stream",
+  "description": "Par cue audio must not count as an impulse.",
+  "sample_rate_hz": 48000,
+  "frames": 192000,
+  "start_cue_onset": 28800,
+  "par_cue_onsets": [
+    124800
+  ],
+  "shot_onsets": [
+    72000,
+    153600
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}

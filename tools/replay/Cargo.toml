@@ -1,0 +1,20 @@
+[package]
+name = "squib-replay"
+description = "Desktop replay runner, fixture generator, and DSP benchmark using the production timing engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "squib-replay"
+path = "src/main.rs"
+
+[dependencies]
+squib-domain.workspace = true
+squib-timing.workspace = true
+squib-mobile = { path = "../../crates/mobile-api" }
+serde.workspace = true
+serde_json.workspace = true
+hound.workspace = true
+sha2.workspace = true

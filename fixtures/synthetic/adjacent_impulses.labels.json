@@ -1,0 +1,16 @@
+{
+  "name": "adjacent_impulses",
+  "description": "Impulse pairs 60 ms and 40 ms apart.",
+  "sample_rate_hz": 48000,
+  "frames": 144000,
+  "start_cue_onset": 33600,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    62400,
+    65280,
+    96000,
+    97920
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}

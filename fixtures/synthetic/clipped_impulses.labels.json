@@ -1,0 +1,14 @@
+{
+  "name": "clipped_impulses",
+  "description": "Impulses driven past full scale.",
+  "sample_rate_hz": 48000,
+  "frames": 144000,
+  "start_cue_onset": 33600,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    67200,
+    86400
+  ],
+  "echo_onsets": [],
+  "clipped": true
+}

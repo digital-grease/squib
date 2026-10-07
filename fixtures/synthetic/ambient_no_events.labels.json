@@ -1,0 +1,11 @@
+{
+  "name": "ambient_no_events",
+  "description": "Cue then ambient noise only: false positives per minute.",
+  "sample_rate_hz": 48000,
+  "frames": 288000,
+  "start_cue_onset": 24000,
+  "par_cue_onsets": [],
+  "shot_onsets": [],
+  "echo_onsets": [],
+  "clipped": false
+}

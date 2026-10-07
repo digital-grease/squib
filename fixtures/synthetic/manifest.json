@@ -1,0 +1,78 @@
+{
+  "fixtures": [
+    {
+      "description": "Start cue then five well separated impulses.",
+      "labels": "basic_5_shots_48k.labels.json",
+      "labels_sha256": "737c5346c931b48e843b3092ec62920afa20fdc784672679925ab53409bdd001",
+      "name": "basic_5_shots_48k",
+      "wav": "basic_5_shots_48k.wav",
+      "wav_sha256": "7e10ac57bc867977e398d991f90df1a2a69d7b13bf84d4d7305795596e9b9bed"
+    },
+    {
+      "description": "Same timeline at 44.1 kHz: durations derive from actual rate.",
+      "labels": "basic_5_shots_44k1.labels.json",
+      "labels_sha256": "51773ef2380d96f7d348a96c4e40c97ca9a5ac04b1867f7bebafaa05ca99a922",
+      "name": "basic_5_shots_44k1",
+      "wav": "basic_5_shots_44k1.wav",
+      "wav_sha256": "adc5476ee5676cbe447a4aac8843fbe7fadd0362ff6a1c1ce26aa58a1cd44111"
+    },
+    {
+      "description": "Impulse 90 ms after cue onset (inside the 150 ms cue) and one 30 ms after cue end.",
+      "labels": "fast_shot_during_cue.labels.json",
+      "labels_sha256": "ad214bf4104159133f131b10a09becdecea0f0681ddf00cace5fbce11986517f",
+      "name": "fast_shot_during_cue",
+      "wav": "fast_shot_during_cue.wav",
+      "wav_sha256": "d3e36157a7a291a547b75e8dc9564e1cfea92dc1b3b4d90446ae94d6a7bf8ba6"
+    },
+    {
+      "description": "Impulses with reflections at 18 ms (−10 dB) and 41 ms (−14 dB).",
+      "labels": "echoes_indoor.labels.json",
+      "labels_sha256": "a59d4771524b65cea8f8443a34863946e3a284a95952a442ce3183458388ebf2",
+      "name": "echoes_indoor",
+      "wav": "echoes_indoor.wav",
+      "wav_sha256": "4ba031081d8e5430af92d675690b573d2c7634bc09c6dae7e937fcbb691ed0e9"
+    },
+    {
+      "description": "Impulse pairs 60 ms and 40 ms apart.",
+      "labels": "adjacent_impulses.labels.json",
+      "labels_sha256": "027ea0ec75e91e74b3f76dba1859ea77609a87c48d5271dbb7ddba23f9dd1978",
+      "name": "adjacent_impulses",
+      "wav": "adjacent_impulses.wav",
+      "wav_sha256": "a9609dfaf006369d7493bd0f44fb46cbd56f1ee5051c87e9c6df905ddaee236b"
+    },
+    {
+      "description": "Impulses driven past full scale.",
+      "labels": "clipped_impulses.labels.json",
+      "labels_sha256": "8486a1c76b7f7d82721af87b824ff5937a59b9129e1afbd2652cf20aef303af9",
+      "name": "clipped_impulses",
+      "wav": "clipped_impulses.wav",
+      "wav_sha256": "c08a3e806e2f5c90e8040fe309eb74c681c1f8bbf646b4466ae631181bc065ba"
+    },
+    {
+      "description": "Par cue audio must not count as an impulse.",
+      "labels": "par_cue_in_stream.labels.json",
+      "labels_sha256": "07e4a577b2946cced05009ee5a2ccf9729b5219f8549499259a5bf22344118b0",
+      "name": "par_cue_in_stream",
+      "wav": "par_cue_in_stream.wav",
+      "wav_sha256": "adeba8aabfffddf05a03861c288377e1e54b4c0fcc292e6455b04f25f3ebd8c0"
+    },
+    {
+      "description": "No cue: a loud impulse in the cue window must not become the start (A04).",
+      "labels": "no_cue_loud_transient.labels.json",
+      "labels_sha256": "b828200ae8f103c1341cef40f753ee7148efb25522661eff114c713a38071c25",
+      "name": "no_cue_loud_transient",
+      "wav": "no_cue_loud_transient.wav",
+      "wav_sha256": "ef7b287920ba11a1da3738bd7ad9e5c66bfec150016c785918a5c597d3fc719d"
+    },
+    {
+      "description": "Cue then ambient noise only: false positives per minute.",
+      "labels": "ambient_no_events.labels.json",
+      "labels_sha256": "35f200e8bc39d53b2f029524ee3b87e829b33207da9a77cfdaeb699b45cc65f0",
+      "name": "ambient_no_events",
+      "wav": "ambient_no_events.wav",
+      "wav_sha256": "08240aa8f4e7dc212488750ef4d4a7e298e6104e53a7ad5620174aa0381c99ab"
+    }
+  ],
+  "generator": "squib-replay gen",
+  "note": "Synthetic fixtures probe algorithm invariants only; they are not field evidence."
+}

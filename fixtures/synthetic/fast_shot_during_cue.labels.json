@@ -1,0 +1,14 @@
+{
+  "name": "fast_shot_during_cue",
+  "description": "Impulse 90 ms after cue onset (inside the 150 ms cue) and one 30 ms after cue end.",
+  "sample_rate_hz": 48000,
+  "frames": 144000,
+  "start_cue_onset": 48000,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    52320,
+    56640
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}

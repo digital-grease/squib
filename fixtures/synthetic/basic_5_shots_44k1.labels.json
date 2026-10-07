@@ -1,0 +1,17 @@
+{
+  "name": "basic_5_shots_44k1",
+  "description": "Same timeline at 44.1 kHz: durations derive from actual rate.",
+  "sample_rate_hz": 44100,
+  "frames": 176400,
+  "start_cue_onset": 44100,
+  "par_cue_onsets": [],
+  "shot_onsets": [
+    72765,
+    87318,
+    100989,
+    115101,
+    130095
+  ],
+  "echo_onsets": [],
+  "clipped": false
+}
