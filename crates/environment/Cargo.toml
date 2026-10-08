@@ -1,0 +1,13 @@
+[package]
+name = "squib-environment"
+description = "Squib range conditions: normalized measurement candidates, NWS normalization, resolver, privacy redaction"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

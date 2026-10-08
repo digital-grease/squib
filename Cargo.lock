@@ -810,15 +810,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "squib-environment"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "squib-mobile"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-queue",
  "jni-sys",
+ "rusqlite",
  "serde",
  "serde_json",
  "squib-domain",
+ "squib-environment",
  "squib-storage",
  "squib-timing",
  "thiserror",
@@ -847,6 +858,7 @@ dependencies = [
  "serde",
  "serde_json",
  "squib-domain",
+ "squib-environment",
  "squib-timing",
  "thiserror",
 ]
