@@ -98,6 +98,8 @@ impl Sim {
             tz_offset_min: -300,
             app_build: "test".into(),
             expected_rate_hz: self.expected_rate,
+            drill_id: None,
+            drill_version: None,
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
         self.handle_effects(&v.effects.clone());

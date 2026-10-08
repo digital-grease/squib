@@ -14,10 +14,12 @@ pub mod jni;
 pub mod queue;
 pub mod registry;
 pub mod store;
+pub mod training_api;
 
 pub use conditions::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
+pub use training_api::*;
 
 uniffi::setup_scaffolding!();
 

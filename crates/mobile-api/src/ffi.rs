@@ -121,6 +121,9 @@ pub struct ArmRequest {
     /// Capture rate the platform expects to negotiate (scopes route signature and
     /// calibration). A different actual rate at capture start fails the run.
     pub expected_rate_hz: u32,
+    /// Drill version this run belongs to (pinned; later edits do not change it).
+    pub drill_id: Option<String>,
+    pub drill_version: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

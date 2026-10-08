@@ -158,6 +158,15 @@ impl SquibEngine {
         self.read.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    pub(crate) fn run_active(&self) -> bool {
+        let g = self.lock();
+        g.machine.is_active() || g.probe.is_some()
+    }
+
+    pub(crate) fn current_run_id(&self) -> Option<String> {
+        self.lock().machine.run_id.clone()
+    }
+
     pub(crate) fn read_repo(&self) -> MutexGuard<'_, Repository> {
         self.read()
     }
@@ -662,6 +671,7 @@ impl SquibEngine {
             recovered,
         });
         engine.restore_place();
+        engine.seed_drills(now_utc_ms);
         Ok(engine)
     }
 
@@ -819,8 +829,8 @@ impl SquibEngine {
             } else {
                 None
             },
-            shooter_id: squib_storage::DEFAULT_SHOOTER_ID.into(),
-            drill_version_id: None,
+            shooter_id: self.active_shooter(),
+            drill_version_id: req.drill_id.clone().zip(req.drill_version).map(|(d, v)| squib_storage::drill_ref(&d, v)),
             equipment_version_id: None,
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
@@ -831,7 +841,7 @@ impl SquibEngine {
         let config = RunConfig { environment_snapshot_id, ..config };
         config.validate().map_err(rejected)?;
         let session_id = self.store.call(|reply| StoreCmd::Session {
-            shooter: squib_storage::DEFAULT_SHOOTER_ID.into(),
+            shooter: self.active_shooter(),
             new_id: new_id(),
             now_utc_ms: req.now_utc_ms,
             tz: req.tz_offset_min,
