@@ -139,6 +139,7 @@ struct Inner {
 #[derive(uniffi::Object)]
 pub struct SquibEngine {
     inner: Mutex<Inner>,
+    cond: Mutex<crate::conditions::CondState>,
     store: StoreActor,
     read: Mutex<Repository>,
     recovered: Vec<RecoveredRun>,
@@ -155,6 +156,18 @@ impl SquibEngine {
 
     fn read(&self) -> MutexGuard<'_, Repository> {
         self.read.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub(crate) fn read_repo(&self) -> MutexGuard<'_, Repository> {
+        self.read()
+    }
+
+    pub(crate) fn store_actor(&self) -> &StoreActor {
+        &self.store
+    }
+
+    pub(crate) fn cond_state(&self) -> &Mutex<crate::conditions::CondState> {
+        &self.cond
     }
 
     /// Feed an input to the machine and interpret effects until quiescent.
@@ -641,12 +654,15 @@ impl SquibEngine {
         let path = PathBuf::from(&db_path);
         let (store, recovered) = StoreActor::start(path.clone(), now_utc_ms)?;
         let read = Repository::open_read_only(&path)?;
-        Ok(Arc::new(Self {
+        let engine = Arc::new(Self {
             inner: Mutex::new(Inner { machine: RunMachine::new(), run: None, capture: None, probe: None, effects: vec![] }),
+            cond: Mutex::new(crate::conditions::CondState::default()),
             store,
             read: Mutex::new(read),
             recovered,
-        }))
+        });
+        engine.restore_place();
+        Ok(engine)
     }
 
     /// Runs recovered as interrupted at startup (process termination).
@@ -810,6 +826,9 @@ impl SquibEngine {
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             app_build: req.app_build.clone(),
         };
+        // Conditions are pinned before the run intent so the snapshot reference is valid.
+        let environment_snapshot_id = self.pin_conditions(req.now_utc_ms)?;
+        let config = RunConfig { environment_snapshot_id, ..config };
         config.validate().map_err(rejected)?;
         let session_id = self.store.call(|reply| StoreCmd::Session {
             shooter: squib_storage::DEFAULT_SHOOTER_ID.into(),

@@ -27,6 +27,9 @@ pub enum StoreCmd {
         tz: i32,
         reply: Sender<SResult<String>>,
     },
+    /// Run an arbitrary repository operation on the writer thread (conditions, places,
+    /// settings). Keeps the single-writer rule without a message per operation.
+    Exec(Box<dyn FnOnce(&mut Repository) + Send>),
     /// Fail the next `n` write commands with a simulated write error (fault injection).
     InjectFaults(u32),
     Shutdown,
@@ -71,6 +74,15 @@ impl StoreActor {
 
     pub fn send(&self, c: StoreCmd) {
         let _ = self.tx.send(c);
+    }
+
+    /// Run `f` on the writer thread and wait for its result.
+    pub fn exec<T: Send + 'static>(&self, f: impl FnOnce(&mut Repository) -> SResult<T> + Send + 'static) -> SResult<T> {
+        let (tx, rx) = bounded(1);
+        self.send(StoreCmd::Exec(Box::new(move |repo| {
+            let _ = tx.send(f(repo));
+        })));
+        rx.recv_timeout(std::time::Duration::from_secs(10)).map_err(|_| StorageError::Write("storage did not respond".into()))?
     }
 
     pub fn call<T>(&self, make: impl FnOnce(Sender<SResult<T>>) -> StoreCmd) -> SResult<T> {
@@ -137,6 +149,7 @@ fn actor_loop(mut repo: Repository, rx: Receiver<StoreCmd>, replies: Sender<Stor
             StoreCmd::Session { shooter, new_id, now_utc_ms, tz, reply } => {
                 let _ = reply.send(repo.active_session(&shooter, &new_id, now_utc_ms, tz));
             }
+            StoreCmd::Exec(f) => f(&mut repo),
             StoreCmd::InjectFaults(n) => faults = n,
             StoreCmd::Shutdown => return,
         }

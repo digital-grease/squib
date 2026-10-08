@@ -6,6 +6,7 @@
 //! - A UniFFI `push_pcm_uniffi` path exists only to benchmark generated marshaling
 //!   against the JNI path (M0 task 6); the app does not use it.
 
+pub mod conditions;
 pub mod dsp;
 pub mod engine;
 pub mod ffi;
@@ -14,6 +15,7 @@ pub mod queue;
 pub mod registry;
 pub mod store;
 
+pub use conditions::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
 

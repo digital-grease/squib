@@ -514,17 +514,22 @@ fn a18_no_raw_pcm_is_written() {
     s.run_ms(3000);
     s.eng.stop("s".into(), s.now()).unwrap();
     s.settle("saved");
-    let dir = std::path::Path::new(&db_path_existing("nopcm")).parent().unwrap().to_path_buf();
-    let mut total = 0u64;
+    let db = db_path_existing("nopcm");
+    let dir = std::path::Path::new(&db).parent().unwrap().to_path_buf();
+    // Only the journal and its WAL/SHM files exist: no audio files of any kind.
     for e in std::fs::read_dir(&dir).unwrap() {
-        let e = e.unwrap();
-        let name = e.file_name().to_string_lossy().to_string();
-        assert!(!name.ends_with(".wav") && !name.ends_with(".pcm") && !name.ends_with(".raw"), "{name}");
-        total += e.metadata().unwrap().len();
+        let name = e.unwrap().file_name().to_string_lossy().to_string();
+        assert!(["journal.db", "journal.db-wal", "journal.db-shm"].contains(&name.as_str()), "unexpected file {name}");
     }
-    // ~4 s of PCM16 at 48 kHz would be 384 KB; the whole journal is far smaller.
-    let pcm_bytes = 4 * 48_000 * 2;
-    assert!(total < pcm_bytes as u64, "journal {total} bytes");
+    // Inside the journal, the only bulk data is the coarse envelope: 2 bytes per
+    // 10 ms hop. Raw PCM16 would be 960 bytes per 10 ms.
+    let c = rusqlite::Connection::open(&db).unwrap();
+    let captured_s = 4.0; // baseline + run, rounded up
+    let envelope: i64 = c.query_row("SELECT COALESCE(SUM(length(data)), 0) FROM energy_envelope", [], |r| r.get(0)).unwrap();
+    assert!(envelope > 0, "envelope stored");
+    assert!(envelope as f64 <= captured_s * 100.0 * 2.0 + 200.0, "envelope {envelope} bytes exceeds coarse budget");
+    let other_blobs: i64 = c.query_row("SELECT COALESCE(SUM(length(body)), 0) FROM provider_cache", [], |r| r.get(0)).unwrap();
+    assert_eq!(other_blobs, 0, "no other bulk data written by a capture run");
 }
 
 fn db_path_existing(name: &str) -> String {
