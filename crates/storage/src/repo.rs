@@ -13,7 +13,7 @@ use crate::{MIGRATIONS, Result, SCHEMA_VERSION, StorageError};
 pub const DEFAULT_SHOOTER_ID: &str = "default";
 
 pub struct Repository {
-    conn: Connection,
+    pub(crate) conn: Connection,
     path: Option<PathBuf>,
 }
 
@@ -164,8 +164,9 @@ impl Repository {
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT INTO run(id, session_id, shooter_id, created_utc_ms, tz_offset_min, source_mode, config_json, config_hash,
-                calibration_profile_id, app_build, detector_version, domain_schema_version, persist_state)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'pending')",
+                calibration_profile_id, app_build, detector_version, domain_schema_version, persist_state,
+                environment_snapshot_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'pending', ?13)",
             params![
                 intent.run_id,
                 intent.session_id,
@@ -179,6 +180,7 @@ impl Repository {
                 intent.config.app_build,
                 intent.config.detector.as_ref().map(|d| d.algorithm_version.clone()),
                 DOMAIN_SCHEMA_VERSION,
+                intent.config.environment_snapshot_id,
             ],
         )?;
         tx.commit()?;
@@ -721,7 +723,11 @@ impl Repository {
             }
             None => vec![],
         };
-        Ok(RunDetail { row, config, epoch, cues, candidates, classified, quality, revisions, envelope })
+        let environment = match &config.environment_snapshot_id {
+            Some(id) => self.load_snapshot(id)?,
+            None => None,
+        };
+        Ok(RunDetail { row, config, epoch, cues, candidates, classified, quality, revisions, envelope, environment })
     }
 
     pub fn insert_calibration(&self, c: &CalibrationRecord) -> Result<()> {

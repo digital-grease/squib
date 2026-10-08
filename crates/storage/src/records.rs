@@ -168,6 +168,9 @@ pub struct RunDetail {
     pub quality: Vec<QualityEvent>,
     pub revisions: Vec<RunRevision>,
     pub envelope: Vec<EnvelopeChunk>,
+    /// Conditions pinned when the run was armed, as stored (redacted unless the user
+    /// opted into precise retention).
+    pub environment: Option<squib_environment::EnvironmentSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

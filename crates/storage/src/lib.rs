@@ -11,17 +11,20 @@
 //! - Unfinished runs recover as interrupted with `uncommitted_tail_possible`.
 //! - Raw PCM is never stored; only the coarse energy envelope.
 
+mod env;
 mod records;
 mod repo;
 
+pub use env::*;
 pub use records::*;
 pub use repo::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
-pub(crate) const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("migrations/0001_initial.sql"))];
+pub const MIGRATIONS: &[(u32, &str)] =
+    &[(1, include_str!("migrations/0001_initial.sql")), (2, include_str!("migrations/0002_environment.sql"))];
 
 /// Storage failures are reported distinctly (docs/squib/06).
 #[derive(Debug, Error, Clone, PartialEq)]
