@@ -1,0 +1,25 @@
+[package]
+name = "squib-archive"
+description = "Squib private backup/restore, CSV export, and redacted result sharing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+squib-domain.workspace = true
+squib-storage.workspace = true
+squib-environment.workspace = true
+squib-training.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+rusqlite = { workspace = true, features = ["backup"] }
+zip.workspace = true
+base64.workspace = true
+csv.workspace = true
+
+[dev-dependencies]
+squib-timing.workspace = true
