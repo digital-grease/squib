@@ -14,17 +14,32 @@
 mod env;
 mod records;
 mod repo;
+mod training;
 
 pub use env::*;
 pub use records::*;
 pub use repo::*;
+pub use training::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
-pub const MIGRATIONS: &[(u32, &str)] =
-    &[(1, include_str!("migrations/0001_initial.sql")), (2, include_str!("migrations/0002_environment.sql"))];
+pub const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("migrations/0001_initial.sql")),
+    (2, include_str!("migrations/0002_environment.sql")),
+    (3, include_str!("migrations/0003_training.sql")),
+];
+
+// Migrations are numbered 1..=SCHEMA_VERSION with no gaps (checked at compile time).
+const _: () = {
+    let mut i = 0;
+    while i < MIGRATIONS.len() {
+        assert!(MIGRATIONS[i].0 as usize == i + 1, "migrations must be numbered 1..=N without gaps");
+        i += 1;
+    }
+    assert!(MIGRATIONS[MIGRATIONS.len() - 1].0 == SCHEMA_VERSION, "last migration must equal SCHEMA_VERSION");
+};
 
 /// Storage failures are reported distinctly (docs/squib/06).
 #[derive(Debug, Error, Clone, PartialEq)]

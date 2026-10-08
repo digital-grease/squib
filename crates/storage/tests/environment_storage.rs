@@ -75,7 +75,7 @@ fn upgrade_from_schema_1_keeps_runs_and_backs_up() {
         .unwrap();
     }
     let repo = Repository::open(&p).unwrap();
-    assert_eq!(repo.schema_version().unwrap(), 2);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     assert!(dir.join("journal.pre-v2.bak").exists(), "pre-migration backup written");
     let d = repo.load_run("r1").unwrap();
     assert_eq!(d.row.outcome, Some(Outcome::Complete));

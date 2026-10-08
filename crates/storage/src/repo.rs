@@ -72,6 +72,12 @@ impl Repository {
         Ok(Self { conn, path: Some(path.to_path_buf()) })
     }
 
+    /// Raw connection for the archive module (generic table export/import). Other
+    /// code goes through typed methods.
+    pub fn connection(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+
     /// Test hook: limit database growth to simulate a full disk.
     pub fn set_max_page_count(&self, pages: u32) -> Result<()> {
         self.conn.query_row(&format!("PRAGMA max_page_count = {pages}"), [], |_| Ok(()))?;
@@ -113,6 +119,13 @@ impl Repository {
             )
             .map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
             tx.commit().map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
+        }
+        let reached = user_version(&self.conn)?;
+        if reached != SCHEMA_VERSION {
+            return Err(StorageError::Migration {
+                version: SCHEMA_VERSION,
+                message: format!("database reached schema {reached}"),
+            });
         }
         let fk: Vec<String> = {
             let mut st = self.conn.prepare("PRAGMA foreign_key_check")?;
@@ -162,6 +175,7 @@ impl Repository {
     pub fn insert_run_intent(&mut self, intent: &RunIntent) -> Result<()> {
         intent.config.validate().map_err(|e| StorageError::Conflict(format!("invalid configuration: {e}")))?;
         let tx = self.conn.transaction()?;
+        let drill = Self::check_drill_ref(&tx, &intent.config)?;
         tx.execute(
             "INSERT INTO run(id, session_id, shooter_id, created_utc_ms, tz_offset_min, source_mode, config_json, config_hash,
                 calibration_profile_id, app_build, detector_version, domain_schema_version, persist_state,
@@ -183,6 +197,9 @@ impl Repository {
                 intent.config.environment_snapshot_id,
             ],
         )?;
+        if let Some((id, v)) = drill {
+            tx.execute("UPDATE run SET drill_id = ?2, drill_version = ?3 WHERE id = ?1", params![intent.run_id, id, v])?;
+        }
         tx.commit()?;
         Ok(())
     }
