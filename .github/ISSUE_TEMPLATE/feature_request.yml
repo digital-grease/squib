@@ -1,0 +1,14 @@
+name: Feature request
+description: Suggest an improvement to Squib.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Squib to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help your practice?

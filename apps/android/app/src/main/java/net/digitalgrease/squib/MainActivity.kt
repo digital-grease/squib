@@ -28,6 +28,14 @@ import androidx.compose.ui.platform.testTag
 import net.digitalgrease.squib.conditions.ConditionsController
 import net.digitalgrease.squib.conditions.ConditionsScreen
 import net.digitalgrease.squib.core.SquibController
+import net.digitalgrease.squib.data.DataController
+import net.digitalgrease.squib.data.IssueReport
+import net.digitalgrease.squib.ui.DataScreen
+import net.digitalgrease.squib.ui.PracticeScreen
+import android.content.Intent
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import net.digitalgrease.squib.ui.HistoryScreen
 import net.digitalgrease.squib.ui.ReviewScreen
 import net.digitalgrease.squib.ui.SetupScreen
@@ -64,6 +72,53 @@ class MainActivity : ComponentActivity() {
         controller.refreshPreflight()
     }
     private val deniedMessage = mutableStateOf(false)
+    private val data: DataController by viewModels()
+    private var photoRun: String? = null
+    private var backupWithPhotos = true
+    private val createBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let { data.exportBackup(it, backupWithPhotos) }
+    }
+    private val createCsv = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri?.let { data.exportCsv(it) }
+    }
+    private val openBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { data.previewImport(it) }
+    }
+    private val openDrill = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { data.importDrill(it) }
+    }
+    private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val run = photoRun
+        if (uri != null && run != null) data.addPhoto(run, uri) { photoVersion.value++ }
+    }
+    private val photoVersion = mutableStateOf(0)
+
+    private fun shareText(subject: String, text: String) {
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, subject).putExtra(Intent.EXTRA_TEXT, text)
+        startActivity(Intent.createChooser(send, subject))
+    }
+
+    private fun copy(label: String, text: String) {
+        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+            .setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+    }
+
+    /** Opens the pre-filled GitHub issue form; the user submits it. Clipboard is the fallback. */
+    private fun reportProblem() {
+        lifecycleScope.launch {
+            val r = data.issueReport()
+            if (r is IssueReport.Result.Truncated) copy("Squib report", r.fullReport)
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(r.url)))
+                if (r is IssueReport.Result.Truncated) {
+                    android.widget.Toast.makeText(this@MainActivity, "Report was long: the full text is on your clipboard to paste.", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: android.content.ActivityNotFoundException) {
+                copy("Squib report", data.reportText())
+                android.widget.Toast.makeText(this@MainActivity, "No browser found. The report was copied to your clipboard.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     /** Microphone is requested only at the point of use, never for par-only (A02). */
     private fun withMic(then: () -> Unit) {
@@ -88,6 +143,14 @@ class MainActivity : ComponentActivity() {
                 var reviewRun by rememberSaveable { mutableStateOf<String?>(null) }
                 val msg by controller.message.collectAsState()
                 val condMsg by conditions.message.collectAsState()
+                val dataMsg by data.message.collectAsState()
+                if (dataMsg != null) {
+                    AlertDialog(
+                        onDismissRequest = data::clearMessage,
+                        confirmButton = { TextButton(onClick = data::clearMessage) { Text("OK") } },
+                        text = { Text(dataMsg!!) },
+                    )
+                }
                 val locDenied by locationDenied
                 val denied by deniedMessage
                 Scaffold(
@@ -96,6 +159,10 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = tab == "timer", onClick = { tab = "timer"; reviewRun = null },
                                 icon = { Text("⏱") }, label = { Text("Timer") }, modifier = Modifier.testTag("tab_timer"),
+                            )
+                            NavigationBarItem(
+                                selected = tab == "practice", onClick = { tab = "practice"; reviewRun = null },
+                                icon = { Text("◎") }, label = { Text("Practice") }, modifier = Modifier.testTag("tab_practice"),
                             )
                             NavigationBarItem(
                                 selected = tab == "conditions", onClick = { tab = "conditions"; reviewRun = null },
@@ -111,11 +178,34 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.padding(pad).fillMaxSize()) {
                         val run = reviewRun
                         when {
-                            run != null -> ReviewScreen(controller, run, onBack = { reviewRun = null }, onRepeat = {
-                                reviewRun = null; tab = "timer"; controller.repeat()
-                            })
+                            run != null -> {
+                                val pv by photoVersion
+                                androidx.compose.runtime.key(run, pv) {
+                                    ReviewScreen(controller, data, run, onBack = { reviewRun = null; controller.refreshHistory(); data.reload() }, onRepeat = {
+                                        reviewRun = null; tab = "timer"; controller.repeat()
+                                    }, onAddPhoto = {
+                                        photoRun = run
+                                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    }, onShare = { json -> shareText("Squib results", json) })
+                                }
+                            }
+                            tab == "data" -> DataScreen(
+                                data,
+                                onBack = { tab = "history" },
+                                onExportBackup = { photos -> backupWithPhotos = photos; createBackup.launch("squib-backup.zip") },
+                                onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+                                onExportCsv = { createCsv.launch("squib-runs.csv") },
+                                onReportProblem = ::reportProblem,
+                            )
+                            tab == "practice" -> PracticeScreen(
+                                data,
+                                onStartDrill = { d -> controller.startDrill(d); tab = "timer" },
+                                onShareDrill = { d, bytes -> shareText("Squib drill: ${d.input.title}", String(bytes)) },
+                                onImportDrill = { openDrill.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                                onOpenRun = { reviewRun = it },
+                            )
                             tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
-                            tab == "history" -> HistoryScreen(controller, onOpen = { reviewRun = it })
+                            tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" })
                             tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
                             else -> TimerScreen(controller, ::withMic, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }

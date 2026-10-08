@@ -37,6 +37,14 @@ data class TimerSettings(
     val expectedCountText: String = "",
     val autoStop: Boolean = false,
     val manualThresholdDb: Float? = null,
+    /** Drill this timer setup came from (pinned per run). */
+    val drillId: String? = null,
+    val drillVersion: UInt? = null,
+    val drillTitle: String? = null,
+    val drillRepeats: Int = 1,
+    val drillRestS: Int = 0,
+    /** 1-based string number within the current set. */
+    val stringIndex: Int = 1,
 )
 
 enum class DelayKind { INSTANT, FIXED, RANDOM }
@@ -161,14 +169,52 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             tzOffsetMin = tz(),
             appBuild = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
             expectedRateHz = inspector.expectedRateHz().toUInt(),
+            drillId = s.drillId,
+            drillVersion = s.drillVersion,
         )
         armWith(req)
     }
 
     /** Repeat reuses the configuration with a fresh random delay and a new run id. */
     fun repeat() {
+        val s = _settings.value
+        if (s.drillId != null) {
+            _settings.value = s.copy(stringIndex = if (s.stringIndex >= s.drillRepeats) 1 else s.stringIndex + 1)
+        }
         val r = lastArm ?: return arm()
         armWith(r.copy(unitRandom = Random.nextDouble(), nowUtcMs = System.currentTimeMillis()))
+    }
+
+    /** Load a drill's recipe into the timer. Each string is a separate run. */
+    fun startDrill(d: DrillView) {
+        val i = d.input
+        val delay = i.delay
+        _settings.value = TimerSettings(
+            mode = i.mode,
+            delayKind = when (delay) {
+                is StartDelay.Instant -> DelayKind.INSTANT
+                is StartDelay.Fixed -> DelayKind.FIXED
+                is StartDelay.Random -> DelayKind.RANDOM
+            },
+            fixedMs = (delay as? StartDelay.Fixed)?.ms?.toInt() ?: 2000,
+            randomMinMs = (delay as? StartDelay.Random)?.minMs?.toInt() ?: 2000,
+            randomMaxMs = (delay as? StartDelay.Random)?.maxMs?.toInt() ?: 4000,
+            parsText = i.parsMs.joinToString(", ") { (it.toInt() / 1000.0).toString() },
+            expectedCountText = i.expectedCount?.toString() ?: "",
+            drillId = d.drillId,
+            drillVersion = d.version,
+            drillTitle = i.title,
+            drillRepeats = i.repeats.toInt(),
+            drillRestS = i.restS.toInt(),
+            stringIndex = 1,
+        )
+        lastArm = null
+        viewModelScope.launch(control) { if (!_view.value.active) runCatching { apply(engine.reset()) } }
+        refreshPreflight()
+    }
+
+    fun clearDrill() {
+        _settings.value = _settings.value.copy(drillId = null, drillVersion = null, drillTitle = null, drillRepeats = 1, drillRestS = 0, stringIndex = 1)
     }
 
     private fun armWith(req: ArmRequest) {

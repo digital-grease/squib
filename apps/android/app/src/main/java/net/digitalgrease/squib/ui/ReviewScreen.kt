@@ -51,7 +51,15 @@ import net.digitalgrease.squib.core.SquibController
  * together as one new revision; the previous revision remains in history.
  */
 @Composable
-fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat: () -> Unit) {
+fun ReviewScreen(
+    c: SquibController,
+    d: net.digitalgrease.squib.data.DataController,
+    runId: String,
+    onBack: () -> Unit,
+    onRepeat: () -> Unit,
+    onAddPhoto: () -> Unit,
+    onShare: (String) -> Unit,
+) {
     var review by remember { mutableStateOf<ReviewView?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val pending = remember { mutableStateListOf<ReviewAction>() }
@@ -160,6 +168,10 @@ fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat
             cv.attribution.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
 
+        ScoreCard(d, runId)
+        RoundsCard(d, runId, r.mode)
+        PhotosAndShare(d, runId, onAddPhoto, onShare, onDeleted = onBack)
+
         Spacer(Modifier.height(16.dp))
         Button(onClick = onRepeat, modifier = Modifier.fillMaxWidth().height(64.dp)) { Text("REPEAT this setup", fontWeight = FontWeight.Black) }
     }
@@ -255,4 +267,151 @@ private fun Timeline(r: ReviewView) {
         }
     }
     Text("● accepted   ■ uncertain   ╲ rejected   ┆ cue   ▌ quality", style = MaterialTheme.typography.bodySmall)
+}
+
+
+@Composable
+private fun ScoreCard(d: net.digitalgrease.squib.data.DataController, runId: String) {
+    var score by remember { mutableStateOf<net.digitalgrease.squib.core.ScoreView?>(null) }
+    var profileId by remember { mutableStateOf<String?>(null) }
+    val counts = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    var complete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId, profileId) {
+        score = d.score(runId, profileId)
+        score?.let { s ->
+            counts.clear()
+            s.counts.forEach { counts[it.name] = it.count.toInt() }
+            complete = s.complete
+        }
+    }
+    val s = score ?: return
+    val profile = d.profiles.find { it.id == s.profileId }
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Score · ${s.profileTitle} (generic practice)", fontWeight = FontWeight.Bold)
+            FlowRow {
+                d.profiles.filter { !it.manual }.forEach { p ->
+                    androidx.compose.material3.FilterChip(selected = p.id == s.profileId, onClick = { profileId = p.id },
+                        label = { Text(p.title) }, modifier = Modifier.padding(end = 6.dp))
+                }
+            }
+            Text(
+                when (s.status) {
+                    "complete" -> s.display ?: "Complete"
+                    "incomplete" -> "Incomplete: ${s.statusReason ?: ""}"
+                    else -> "Not valid: ${s.statusReason ?: ""}"
+                },
+                color = if (s.status == "complete") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("score_status"),
+            )
+            profile?.inputs?.forEach { input ->
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    val unit = when (input.kind) {
+                        "points" -> "${input.value} pts"
+                        "penalty_points" -> "${input.value} pts"
+                        else -> "+${input.value.toInt() / 1000.0} s"
+                    }
+                    Text("${input.name} ($unit)", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { counts[input.name] = ((counts[input.name] ?: 0) - 1).coerceAtLeast(0) }) { Text("−") }
+                    Text("${counts[input.name] ?: 0}", fontWeight = FontWeight.Bold, modifier = Modifier.testTag("count_${input.name}"))
+                    TextButton(onClick = { counts[input.name] = (counts[input.name] ?: 0) + 1 }, modifier = Modifier.testTag("inc_${input.name}")) { Text("+") }
+                }
+            }
+            if (profile?.inputs?.isNotEmpty() == true) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = complete, onCheckedChange = { complete = it }, modifier = Modifier.testTag("score_complete"))
+                    Text("All targets scored")
+                }
+                OutlinedButton(onClick = {
+                    scope.launch { d.saveScore(runId, s.profileId, counts.toMap(), complete).onSuccess { score = it } }
+                }, modifier = Modifier.heightIn(min = 48.dp).testTag("save_score")) { Text("Save score") }
+                Text("Scores are saved as revisions and never change shot times.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoundsCard(d: net.digitalgrease.squib.data.DataController, runId: String, mode: String) {
+    var rv by remember { mutableStateOf<net.digitalgrease.squib.core.RoundsView?>(null) }
+    var n by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId) {
+        rv = d.rounds(runId)
+        n = (rv?.confirmed ?: rv?.proposed ?: 0u).toInt()
+    }
+    val v = rv ?: return
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Rounds fired", fontWeight = FontWeight.Bold)
+            Text(
+                if (mode == "phone_live") "Suggested from accepted shots: ${v.proposed}. Adjust for malfunctions or missed detections."
+                else "Enter the rounds you fired (par-only and manual runs suggest none).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                TextButton(onClick = { n = (n - 1).coerceAtLeast(0) }) { Text("−") }
+                Text("$n", fontWeight = FontWeight.Bold)
+                TextButton(onClick = { n += 1 }) { Text("+") }
+                OutlinedButton(onClick = { scope.launch { rv = d.confirmRounds(runId, n) } }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (v.confirmed == null) "Confirm" else "Update")
+                }
+            }
+            v.confirmed?.let { Text("Confirmed: $it") }
+        }
+    }
+}
+
+@Composable
+private fun PhotosAndShare(
+    d: net.digitalgrease.squib.data.DataController,
+    runId: String,
+    onAddPhoto: () -> Unit,
+    onShare: (String) -> Unit,
+    onDeleted: () -> Unit,
+) {
+    var photos by remember { mutableStateOf<List<net.digitalgrease.squib.core.AttachmentView>>(emptyList()) }
+    var preview by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId) { photos = d.attachments(runId) }
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Photos and sharing", fontWeight = FontWeight.Bold)
+            Text("${photos.size} target photo(s). Photos are copied into the app with location and camera metadata removed.", style = MaterialTheme.typography.bodySmall)
+            FlowRow {
+                OutlinedButton(onClick = onAddPhoto, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) { Text("Add photo") }
+                OutlinedButton(onClick = { scope.launch { preview = d.shareJson(listOf(runId)) } }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) {
+                    Text("Share result")
+                }
+                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Delete run", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+    preview?.let { json ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { preview = null },
+            confirmButton = { TextButton(onClick = { onShare(json); preview = null }) { Text("Share") } },
+            dismissButton = { TextButton(onClick = { preview = null }) { Text("Cancel") } },
+            title = { Text("Share preview") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text("Includes times, score, and conditions with their sources. Excludes location, station names, notes, photos, and identifiers. Visible landmarks in shared photos could still reveal a place.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(json, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+        )
+    }
+    if (confirmDelete) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; d.deleteRun(runId, onDeleted) }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            text = { Text("Delete this run, its corrections, score, and photos from this phone? Copies you already shared or backed up are not affected.") },
+        )
+    }
 }

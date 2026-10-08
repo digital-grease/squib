@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,6 +65,16 @@ fun TimerScreen(
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text("Timer", style = MaterialTheme.typography.headlineMedium)
+        s.drillTitle?.let { t ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Drill: $t" + if (s.drillRepeats > 1) " · string ${s.stringIndex} of ${s.drillRepeats}" else "",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f).testTag("drill_banner"),
+                )
+                if (editable) TextButton(onClick = { c.clearDrill() }) { Text("Clear") }
+            }
+        }
         Spacer(Modifier.height(8.dp))
 
         if (editable) {
@@ -162,9 +173,29 @@ fun TimerScreen(
 
         if (v.phase in setOf("saved", "save_pending", "cancelled", "failed")) {
             Spacer(Modifier.height(12.dp))
+            if (s.drillId != null && s.drillRestS > 0 && s.stringIndex < s.drillRepeats && v.phase == "saved") {
+                RestCountdown(s.drillRestS, v.runId)
+            }
             ResultActions(v, c, onReview)
         }
     }
+}
+
+/** Rest between strings: a separate visible timer, never a hidden start countdown. */
+@Composable
+private fun RestCountdown(restS: Int, key: String?) {
+    var left by remember(key) { mutableStateOf(restS) }
+    androidx.compose.runtime.LaunchedEffect(key) {
+        while (left > 0) {
+            kotlinx.coroutines.delay(1000)
+            left--
+        }
+    }
+    Text(
+        if (left > 0) "Rest: $left s before the next string (Repeat starts it when you are ready)" else "Rest done. Press Repeat for the next string.",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
 }
 
 @Composable

@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in Squib did not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. If you opened this from the app, the device details and diagnostics below were filled in for you. Please review them before submitting: they contain app versions, device model, capture timing statistics, and recent run outcomes. They do not contain audio, location, station names, notes, or run identifiers.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: Google Pixel 8
+  - type: input
+    id: android_version
+    attributes:
+      label: Android version
+      placeholder: 15 (API 35)
+  - type: input
+    id: app_version
+    attributes:
+      label: Squib version
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Filled in by the app. If it says the report was truncated, paste the full report from your clipboard here.
+      render: text

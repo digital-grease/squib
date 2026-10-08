@@ -34,12 +34,16 @@ class ConditionsLiveTest {
             rule.onNodeWithTag("set_place").performScrollTo().performClick()
         }
         rule.waitUntil(5_000) { has("40.02, -105.27") }
-        // Enable lookup (idempotent if already on), then refresh.
-        val refreshDisabled = {
-            rule.onNodeWithTag("refresh").fetchSemanticsNode().config.contains(SemanticsProperties.Disabled)
+        // Enable lookup if it is off (read the switch itself), then refresh.
+        val lookupOn = {
+            rule.onNodeWithTag("weather_switch").fetchSemanticsNode().config
+                .getOrElseNullable(SemanticsProperties.ToggleableState) { null } == androidx.compose.ui.state.ToggleableState.On
         }
-        if (refreshDisabled()) rule.onNodeWithTag("weather_switch").performClick()
-        rule.waitUntil(5_000) { !refreshDisabled() }
+        if (!lookupOn()) rule.onNodeWithTag("weather_switch").performScrollTo().performClick()
+        rule.waitUntil(5_000) { lookupOn() }
+        rule.waitUntil(5_000) {
+            !rule.onNodeWithTag("refresh").fetchSemanticsNode().config.contains(SemanticsProperties.Disabled)
+        }
         rule.onNodeWithTag("refresh").performScrollTo().performClick()
         rule.waitUntil(30_000) { has("Nearby observation") }
         // Pressure here must stay unavailable: NWS has no local actual pressure.
