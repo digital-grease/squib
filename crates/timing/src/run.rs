@@ -381,6 +381,9 @@ impl RunMachine {
                 if self.phase != Phase::Ready {
                     return reject("a run is already in progress");
                 }
+                if !config.source_mode.armable() {
+                    return reject("this mode records an existing result and is not armed");
+                }
                 if let Err(e) = config.validate() {
                     return reject(&e.to_string());
                 }

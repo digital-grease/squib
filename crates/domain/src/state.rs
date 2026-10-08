@@ -23,8 +23,14 @@ pub enum SourceMode {
 }
 
 impl SourceMode {
-    /// Whether this build offers the mode as a working feature.
+    /// Whether this build offers the mode as a working feature. Manual entry (M3)
+    /// records another timer's string; it is never armed.
     pub fn available_in_m1(self) -> bool {
+        matches!(self, SourceMode::PhoneLive | SourceMode::ParOnly | SourceMode::ManualEntry)
+    }
+
+    /// Whether the run state machine can arm this mode.
+    pub fn armable(self) -> bool {
         matches!(self, SourceMode::PhoneLive | SourceMode::ParOnly)
     }
 

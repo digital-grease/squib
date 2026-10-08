@@ -403,6 +403,7 @@ mod tests {
         let mut c = par_only_config();
         c.source_mode = SourceMode::HardwareLive;
         assert!(matches!(c.validate(), Err(ConfigError::ModeUnavailable(_))));
+        assert!(!SourceMode::ManualEntry.armable() && SourceMode::ManualEntry.available_in_m1());
     }
 
     #[test]
