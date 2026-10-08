@@ -9,7 +9,12 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 - **Par timer.** Set a start delay (instant, fixed, or random), add one or more par times, and press Arm. The phone plays a start beep after the delay and a beep at each par time. This mode never uses the microphone.
 - **Shot timing (experimental).** The phone listens for its own start beep and for shots, then shows your first-shot time, the splits between shots, and the total.
 - **Review and correct.** After a run you can look at every detected shot, keep or reject uncertain ones, add a shot the phone missed, or nudge a time. Your corrections are saved as a new version; the original detections are never thrown away.
-- **History.** Every run is saved on the phone with its result, including runs that were cancelled or interrupted.
+- **Drills.** Save your own drills (start delay, par times, strings and rest, scoring) or start from simple examples. Editing a drill creates a new version, so earlier results stay comparable. Drills can be shared as small files.
+- **Scoring.** Generic practice scoring: time only, points and hit factor, or time plus penalties. These are practice tools, not official rule sets. A missing score stays "incomplete" instead of counting as zero.
+- **Results from another timer.** Type in the times from a club or borrowed timer; they are kept at that timer's precision and marked as manual.
+- **History and progress.** Every run is saved on the phone, including cancelled or interrupted ones. Summaries show medians and spread, always with how many runs were included and why others were left out; fewer than five comparable runs are labeled too few for a trend. Separate shooter profiles let several people share one phone.
+- **Rounds and photos.** Confirm how many rounds you fired (with an optional cost per round), and attach target photos.
+- **Your data stays yours.** Save a full private backup and restore it on any phone, export a spreadsheet (CSV), or share a single result without location details. You can delete one run or everything.
 - **Setup help.** A sensitivity check measures how loud your surroundings are, and a cue test confirms the microphone can hear the start beep before you rely on it.
 - **Range conditions.** Temperature, humidity, wind, and pressure for your range, from nearby US weather stations, the phone's barometer if it has one, or values you enter. Every value shows where it came from and how old it is, and each run keeps a copy of the conditions when it started.
 
@@ -29,11 +34,13 @@ Squib is an early prototype and is not yet available in any app store.
 - Squib never records or saves audio. Sound is analyzed in memory and discarded; only shot times and a coarse loudness outline are kept.
 - The microphone is requested only when you choose shot timing, sensitivity setup, or the cue test. The par timer never asks for it. Location is requested only when you tap "Use my location"; typing coordinates or picking a saved place works without it.
 - By default, runs keep weather values but not your coordinates, station names, or elevation. You can opt in to keeping full detail.
-- History stays on your phone. It is not included in Android backups yet, so it does not move to a new phone. Export is planned.
+- History stays on your phone and is not included in Android's automatic backups. To move it, save a private backup file and restore it on the new phone. Backup files are not encrypted, so store them somewhere you trust.
+- Sharing a result leaves out your location, station names, notes, photos, and identifiers.
+- "Report a problem" opens a pre-filled GitHub issue in your browser for you to review and submit. It includes app versions, device model, and timing diagnostics, never audio, location, or notes.
 
 ## Planned
 
-Drill recipes, practice scoring, and export/backup of your history.
+Support for one dedicated shot-timer accessory, phone or watch remote controls, and match-day tools. A session plan (an ordered list of drills for a range visit) is next on the list.
 
 ## License
 
@@ -57,7 +64,9 @@ Timing comes from audio sample positions, not from when the app happens to recei
 crates/domain/            run config, states, quality events, candidates, revisions, results
 crates/timing/            clock mapping, capture integrity, cue matching, detector, run state machine, replay
 crates/environment/       range conditions: measurement candidates, NWS adapter, resolver, privacy redaction
+crates/training/          drill recipes, generic practice scoring, analytics, manual strings, round counts
 crates/storage/           SQLite repository, migrations, recovery
+crates/archive/           private backup/restore, CSV export, redacted result sharing
 crates/mobile-api/        UniFFI engine (control plane), JNI PCM bridge (data plane), DSP and store actors
 tools/replay/             squib-replay: fixtures, replay, corpus evaluation, benchmark
 tools/uniffi-bindgen/     pinned binding generator
@@ -65,6 +74,7 @@ apps/android/             Kotlin + Jetpack Compose app
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
 fixtures/nws/             captured api.weather.gov responses (public domain) for adapter tests
 scripts/                  Android core build, emulator UI driver
+.github/                  CI workflow and issue forms (used by the in-app problem report)
 ```
 
 ### Requirements
