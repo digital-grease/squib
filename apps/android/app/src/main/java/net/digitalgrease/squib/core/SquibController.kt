@@ -369,6 +369,10 @@ class SquibController(app: Application) : AndroidViewModel(app) {
         runCatching { engine.loadReview(runId) }
     }
 
+    suspend fun runConditions(runId: String): ConditionsView? = withContext(control) {
+        runCatching { engine.runConditions(runId) }.getOrNull()
+    }
+
     suspend fun applyReview(runId: String, base: UInt, actions: List<ReviewAction>, reason: String?): Result<ReviewView> =
         withContext(control) {
             runCatching { engine.applyReview(runId, base, actions, reason, System.currentTimeMillis()) }

@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import net.digitalgrease.squib.conditions.ConditionsController
+import net.digitalgrease.squib.conditions.ConditionsScreen
 import net.digitalgrease.squib.core.SquibController
 import net.digitalgrease.squib.ui.HistoryScreen
 import net.digitalgrease.squib.ui.ReviewScreen
@@ -34,6 +36,26 @@ import net.digitalgrease.squib.ui.TimerScreen
 
 class MainActivity : ComponentActivity() {
     private val controller: SquibController by viewModels()
+    private val conditions: ConditionsController by viewModels()
+    private var afterLocation: (() -> Unit)? = null
+    private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        val next = afterLocation
+        afterLocation = null
+        if (r.values.any { it }) next?.invoke() else locationDenied.value = true
+    }
+    private val locationDenied = mutableStateOf(false)
+
+    /** Location is requested only when the user asks to use it; manual places always work. */
+    private fun withLocation(then: () -> Unit) {
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        ) {
+            then()
+        } else {
+            afterLocation = then
+            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
     private var afterPermission: (() -> Unit)? = null
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val next = afterPermission
@@ -65,6 +87,8 @@ class MainActivity : ComponentActivity() {
                 var tab by rememberSaveable { mutableStateOf("timer") }
                 var reviewRun by rememberSaveable { mutableStateOf<String?>(null) }
                 val msg by controller.message.collectAsState()
+                val condMsg by conditions.message.collectAsState()
+                val locDenied by locationDenied
                 val denied by deniedMessage
                 Scaffold(
                     bottomBar = {
@@ -72,6 +96,10 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = tab == "timer", onClick = { tab = "timer"; reviewRun = null },
                                 icon = { Text("⏱") }, label = { Text("Timer") }, modifier = Modifier.testTag("tab_timer"),
+                            )
+                            NavigationBarItem(
+                                selected = tab == "conditions", onClick = { tab = "conditions"; reviewRun = null },
+                                icon = { Text("☁") }, label = { Text("Conditions") }, modifier = Modifier.testTag("tab_conditions"),
                             )
                             NavigationBarItem(
                                 selected = tab == "history", onClick = { tab = "history"; reviewRun = null },
@@ -88,6 +116,7 @@ class MainActivity : ComponentActivity() {
                             })
                             tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
                             tab == "history" -> HistoryScreen(controller, onOpen = { reviewRun = it })
+                            tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
                             else -> TimerScreen(controller, ::withMic, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }
                     }
@@ -97,6 +126,20 @@ class MainActivity : ComponentActivity() {
                         onDismissRequest = controller::clearMessage,
                         confirmButton = { TextButton(onClick = controller::clearMessage) { Text("OK") } },
                         text = { Text(msg!!) },
+                    )
+                }
+                if (condMsg != null) {
+                    AlertDialog(
+                        onDismissRequest = conditions::clearMessage,
+                        confirmButton = { TextButton(onClick = conditions::clearMessage) { Text("OK") } },
+                        text = { Text(condMsg!!) },
+                    )
+                }
+                if (locDenied) {
+                    AlertDialog(
+                        onDismissRequest = { locationDenied.value = false },
+                        confirmButton = { TextButton(onClick = { locationDenied.value = false }) { Text("OK") } },
+                        text = { Text("Location permission was not granted. You can enter coordinates or use a saved place instead.") },
                     )
                 }
                 if (denied) {

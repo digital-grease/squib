@@ -58,8 +58,10 @@ fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat
     var manualText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
+    var conditions by remember { mutableStateOf<net.digitalgrease.squib.core.ConditionsView?>(null) }
     LaunchedEffect(runId) {
         c.loadReview(runId).onSuccess { review = it }.onFailure { error = it.message }
+        conditions = c.runConditions(runId)
     }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("review_screen")) {
@@ -145,6 +147,17 @@ fun ReviewScreen(c: SquibController, runId: String, onBack: () -> Unit, onRepeat
             }
         } else {
             Text("No detected events: this run has no microphone timeline.", modifier = Modifier.padding(top = 8.dp))
+        }
+
+        conditions?.let { cv ->
+            Text("Conditions at start", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+            Text(
+                if (cv.redacted) "Ages as of when the run started. Precise provenance not retained (location privacy setting)."
+                else "Ages as of when the run started.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            net.digitalgrease.squib.conditions.FieldList(cv, java.util.Locale.getDefault().country == "US", null)
+            cv.attribution.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
 
         Spacer(Modifier.height(16.dp))
