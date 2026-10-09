@@ -31,6 +31,8 @@ import net.digitalgrease.squib.core.SquibController
 import net.digitalgrease.squib.data.DataController
 import net.digitalgrease.squib.data.IssueReport
 import net.digitalgrease.squib.ui.DataScreen
+import net.digitalgrease.squib.ui.ChecklistTemplateScreen
+import net.digitalgrease.squib.ui.PlanScreen
 import net.digitalgrease.squib.ui.PracticeScreen
 import android.content.Intent
 import androidx.activity.result.PickVisualMediaRequest
@@ -141,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 }
                 var tab by rememberSaveable { mutableStateOf("timer") }
                 var reviewRun by rememberSaveable { mutableStateOf<String?>(null) }
+                var openPlan by rememberSaveable { mutableStateOf<String?>(null) }
                 val msg by controller.message.collectAsState()
                 val condMsg by conditions.message.collectAsState()
                 val dataMsg by data.message.collectAsState()
@@ -161,7 +164,8 @@ class MainActivity : ComponentActivity() {
                                 icon = { Text("⏱") }, label = { Text("Timer") }, modifier = Modifier.testTag("tab_timer"),
                             )
                             NavigationBarItem(
-                                selected = tab == "practice", onClick = { tab = "practice"; reviewRun = null },
+                                selected = tab in setOf("practice", "plan", "checklist"),
+                                onClick = { tab = if (openPlan != null) "plan" else "practice"; reviewRun = null },
                                 icon = { Text("◎") }, label = { Text("Practice") }, modifier = Modifier.testTag("tab_practice"),
                             )
                             NavigationBarItem(
@@ -203,11 +207,20 @@ class MainActivity : ComponentActivity() {
                                 onShareDrill = { d, bytes -> shareText("Squib drill: ${d.input.title}", String(bytes)) },
                                 onImportDrill = { openDrill.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                                 onOpenRun = { reviewRun = it },
+                                onOpenPlan = { openPlan = it; tab = "plan" },
+                                onTemplate = { tab = "checklist" },
                             )
+                            tab == "plan" && openPlan != null -> PlanScreen(
+                                data, openPlan!!,
+                                onBack = { openPlan = null; tab = "practice"; data.reload() },
+                                onStartDrill = { d, item, title, strings -> controller.startDrill(d, item, title, strings); tab = "timer" },
+                                onOpenRun = { reviewRun = it },
+                            )
+                            tab == "checklist" -> ChecklistTemplateScreen(data, onBack = { tab = "practice" })
                             tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
                             tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" })
                             tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
-                            else -> TimerScreen(controller, ::withMic, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
+                            else -> TimerScreen(controller, data, ::withMic, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }
                     }
                 }

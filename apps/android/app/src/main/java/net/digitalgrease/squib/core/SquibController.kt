@@ -45,6 +45,9 @@ data class TimerSettings(
     val drillRestS: Int = 0,
     /** 1-based string number within the current set. */
     val stringIndex: Int = 1,
+    /** Day-plan agenda item the runs count toward. */
+    val planItemId: String? = null,
+    val planTitle: String? = null,
 )
 
 enum class DelayKind { INSTANT, FIXED, RANDOM }
@@ -171,6 +174,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             expectedRateHz = inspector.expectedRateHz().toUInt(),
             drillId = s.drillId,
             drillVersion = s.drillVersion,
+            planItemId = s.planItemId,
         )
         armWith(req)
     }
@@ -186,7 +190,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     }
 
     /** Load a drill's recipe into the timer. Each string is a separate run. */
-    fun startDrill(d: DrillView) {
+    fun startDrill(d: DrillView, planItemId: String? = null, planTitle: String? = null, strings: Int? = null) {
         val i = d.input
         val delay = i.delay
         _settings.value = TimerSettings(
@@ -204,9 +208,11 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             drillId = d.drillId,
             drillVersion = d.version,
             drillTitle = i.title,
-            drillRepeats = i.repeats.toInt(),
+            drillRepeats = strings ?: i.repeats.toInt(),
             drillRestS = i.restS.toInt(),
             stringIndex = 1,
+            planItemId = planItemId,
+            planTitle = planTitle,
         )
         lastArm = null
         viewModelScope.launch(control) { if (!_view.value.active) runCatching { apply(engine.reset()) } }
@@ -214,7 +220,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearDrill() {
-        _settings.value = _settings.value.copy(drillId = null, drillVersion = null, drillTitle = null, drillRepeats = 1, drillRestS = 0, stringIndex = 1)
+        _settings.value = _settings.value.copy(drillId = null, drillVersion = null, drillTitle = null, drillRepeats = 1, drillRestS = 0, stringIndex = 1, planItemId = null, planTitle = null)
     }
 
     private fun armWith(req: ArmRequest) {

@@ -13,6 +13,8 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 - **Scoring.** Generic practice scoring: time only, points and hit factor, or time plus penalties. These are practice tools, not official rule sets. A missing score stays "incomplete" instead of counting as zero.
 - **Results from another timer.** Type in the times from a club or borrowed timer; they are kept at that timer's precision and marked as manual.
 - **History and progress.** Every run is saved on the phone, including cancelled or interrupted ones. Summaries show medians and spread, always with how many runs were included and why others were left out; fewer than five comparable runs are labeled too few for a trend. Separate shooter profiles let several people share one phone.
+- **Day plans.** Plan a practice or match day: drills to run (with how many strings), stage notes such as start position and round count, and times like the shooters meeting. The plan shows what is next and counts only runs you actually finished; skipping an item never invents a result. Each plan has a checklist copied from your own template, and a countdown helps with walkthroughs.
+- **Coaching.** The timer always shows who is shooting. A coach can switch shooters between runs or set a rotation, and after each run Squib offers the next shooter. History shows who fired each run.
 - **Rounds and photos.** Confirm how many rounds you fired (with an optional cost per round), and attach target photos.
 - **Your data stays yours.** Save a full private backup and restore it on any phone, export a spreadsheet (CSV), or share a single result without location details. You can delete one run or everything.
 - **Setup help.** A sensitivity check measures how loud your surroundings are, and a cue test confirms the microphone can hear the start beep before you rely on it.
@@ -35,12 +37,12 @@ Squib is an early prototype and is not yet available in any app store.
 - The microphone is requested only when you choose shot timing, sensitivity setup, or the cue test. The par timer never asks for it. Location is requested only when you tap "Use my location"; typing coordinates or picking a saved place works without it.
 - By default, runs keep weather values but not your coordinates, station names, or elevation. You can opt in to keeping full detail.
 - History stays on your phone and is not included in Android's automatic backups. To move it, save a private backup file and restore it on the new phone. Backup files are not encrypted, so store them somewhere you trust.
-- Sharing a result leaves out your location, station names, notes, photos, and identifiers.
+- Sharing a result leaves out your location, station names, notes, photos, and identifiers. Plan and stage notes are never shared.
 - "Report a problem" opens a pre-filled GitHub issue in your browser for you to review and submit. It includes app versions, device model, and timing diagnostics, never audio, location, or notes.
 
 ## Planned
 
-Support for one dedicated shot-timer accessory, phone or watch remote controls, and match-day tools. A session plan (an ordered list of drills for a range visit) is next on the list.
+Support for one dedicated shot-timer accessory and phone or watch remote controls, both waiting on suitable test hardware. Short video clips matched to shot times are planned after real-phone audio testing.
 
 ## License
 
@@ -65,7 +67,7 @@ crates/domain/            run config, states, quality events, candidates, revisi
 crates/timing/            clock mapping, capture integrity, cue matching, detector, run state machine, replay
 crates/environment/       range conditions: measurement candidates, NWS adapter, resolver, privacy redaction
 crates/training/          drill recipes, generic practice scoring, analytics, manual strings, round counts
-crates/storage/           SQLite repository, migrations, recovery
+crates/storage/           SQLite repository, migrations, recovery, day plans and checklists
 crates/archive/           private backup/restore, CSV export, redacted result sharing
 crates/mobile-api/        UniFFI engine (control plane), JNI PCM bridge (data plane), DSP and store actors
 tools/replay/             squib-replay: fixtures, replay, corpus evaluation, benchmark

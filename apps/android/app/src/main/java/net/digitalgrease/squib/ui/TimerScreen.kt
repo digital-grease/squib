@@ -50,10 +50,12 @@ import net.digitalgrease.squib.core.RouteLevel
 import net.digitalgrease.squib.core.SquibController
 import net.digitalgrease.squib.core.parsMs
 import net.digitalgrease.squib.core.validate
+import net.digitalgrease.squib.data.DataController
 
 @Composable
 fun TimerScreen(
     c: SquibController,
+    d: DataController,
     onRequestMic: (then: () -> Unit) -> Unit,
     onReview: (String) -> Unit,
     onSetup: () -> Unit,
@@ -65,6 +67,8 @@ fun TimerScreen(
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text("Timer", style = MaterialTheme.typography.headlineMedium)
+        CoachBar(d, locked = v.active, afterRun = v.phase in setOf("saved", "cancelled", "failed"))
+        s.planTitle?.let { Text("Plan: $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("plan_banner")) }
         s.drillTitle?.let { t ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

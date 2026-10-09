@@ -53,6 +53,8 @@ fun PracticeScreen(
     onShareDrill: (DrillView, ByteArray) -> Unit,
     onImportDrill: () -> Unit,
     onOpenRun: (String) -> Unit,
+    onOpenPlan: (String) -> Unit,
+    onTemplate: () -> Unit,
 ) {
     val drills by d.drills.collectAsState()
     var editing by remember { mutableStateOf<DrillView?>(null) }
@@ -71,6 +73,8 @@ fun PracticeScreen(
     }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("practice")) {
         Text("Practice", style = MaterialTheme.typography.headlineMedium)
+        PlansSection(d, onOpenPlan, onTemplate)
+        Text("Drills", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
             Button(onClick = { creating = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("New drill") }
             OutlinedButton(onClick = { manualFor = null; manualOpen = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("manual_entry")) {
@@ -186,7 +190,7 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
 }
 
 @Composable
-private fun ManualEntry(d: DataController, drill: DrillView?, onDone: (String?) -> Unit) {
+internal fun ManualEntry(d: DataController, drill: DrillView?, planItemId: String? = null, onDone: (String?) -> Unit) {
     var label by remember { mutableStateOf("") }
     var precision by remember { mutableStateOf(10) }
     var times by remember { mutableStateOf("") }
@@ -206,7 +210,7 @@ private fun ManualEntry(d: DataController, drill: DrillView?, onDone: (String?) 
             times, { times = it }, label = { Text("Shot times from the timer's start (s), e.g. 1.42 1.83 2.25") },
             modifier = Modifier.fillMaxWidth().testTag("manual_times"),
         )
-        Button(onClick = { d.addManual(label, precision, times, drill) { id -> onDone(id) } },
+        Button(onClick = { d.addManual(label, precision, times, drill, planItemId) { id -> onDone(id) } },
             modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 8.dp).testTag("manual_save")) { Text("Save result") }
     }
 }

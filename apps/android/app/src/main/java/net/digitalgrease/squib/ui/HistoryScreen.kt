@@ -150,7 +150,7 @@ fun HistoryScreen(c: SquibController, d: DataController, onOpen: (String) -> Uni
                     .testTag("run_${r.runId}"),
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(fmtDate(r.createdUtcMs), fontWeight = FontWeight.Bold)
+                    Text(fmtDate(r.createdUtcMs) + " · " + r.shooterName, fontWeight = FontWeight.Bold)
                     FlowRow {
                         Badge(if (r.mode == "par_only") "Par-only" else "Live (experimental)")
                         Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
@@ -169,7 +169,7 @@ fun HistoryScreen(c: SquibController, d: DataController, onOpen: (String) -> Uni
         }
         item {
             Text(
-                "History is stored only on this device. Export and backup arrive in a later version.",
+                "History is stored only on this device. Use Data and backup to save a copy.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(vertical = 16.dp),
             )

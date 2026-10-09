@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
+import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -21,6 +22,11 @@ import net.digitalgrease.squib.BuildConfig
 import net.digitalgrease.squib.SquibApp
 import net.digitalgrease.squib.core.AnalyticsFilterFfi
 import net.digitalgrease.squib.core.AnalyticsView
+import net.digitalgrease.squib.core.ChecklistView
+import net.digitalgrease.squib.core.CoachView
+import net.digitalgrease.squib.core.PlanItemInput
+import net.digitalgrease.squib.core.PlanSummaryView
+import net.digitalgrease.squib.core.PlanView
 import net.digitalgrease.squib.core.DrillInput
 import net.digitalgrease.squib.core.DrillView
 import net.digitalgrease.squib.core.ImportView
@@ -50,6 +56,10 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     val message: StateFlow<String?> = _message.asStateFlow()
     private val _pendingImport = MutableStateFlow<Pair<File, ImportView>?>(null)
     val pendingImport: StateFlow<Pair<File, ImportView>?> = _pendingImport.asStateFlow()
+    private val _plans = MutableStateFlow<List<PlanSummaryView>>(emptyList())
+    val plans: StateFlow<List<PlanSummaryView>> = _plans.asStateFlow()
+    private val _coach = MutableStateFlow<CoachView?>(null)
+    val coach: StateFlow<CoachView?> = _coach.asStateFlow()
     private val _filter = MutableStateFlow(AnalyticsFilterFfi(null, null, null, true, false, false, false))
     val filter: StateFlow<AnalyticsFilterFfi> = _filter.asStateFlow()
 
@@ -66,12 +76,16 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     private fun tz(): Int = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
 
     fun reload() {
-        viewModelScope.launch(worker) {
-            _drills.value = engine.listDrills()
-            _shooters.value = engine.listShooters()
-            _rounds.value = engine.roundTotals()
-            _analytics.value = runCatching { engine.analytics(_filter.value) }.getOrNull()
-        }
+        viewModelScope.launch(worker) { refresh() }
+    }
+
+    private fun refresh() {
+        _drills.value = engine.listDrills()
+        _shooters.value = engine.listShooters()
+        _rounds.value = engine.roundTotals()
+        _analytics.value = runCatching { engine.analytics(_filter.value) }.getOrNull()
+        _plans.value = runCatching { engine.listPlans() }.getOrDefault(emptyList())
+        _coach.value = engine.coach()
     }
 
     private fun act(f: () -> Unit) {
@@ -83,10 +97,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _message.value = "Failed: ${e.message}"
             }
-            _drills.value = engine.listDrills()
-            _shooters.value = engine.listShooters()
-            _rounds.value = engine.roundTotals()
-            _analytics.value = runCatching { engine.analytics(_filter.value) }.getOrNull()
+            refresh()
         }
     }
 
@@ -111,13 +122,54 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     fun setActiveShooter(id: String) = act { engine.setActiveShooter(id) }
 
     // Manual entry (A20)
-    fun addManual(label: String, precisionMs: Int, times: String, drill: DrillView?, onDone: (String) -> Unit) = act {
+    fun addManual(label: String, precisionMs: Int, times: String, drill: DrillView?, planItemId: String? = null, onDone: (String) -> Unit) = act {
         val id = engine.addManualRun(
             label, precisionMs.toUInt(), times, drill?.drillId, drill?.version,
             System.currentTimeMillis(), tz(), "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
         )
+        planItemId?.let { engine.linkRunToItem(it, id) }
         viewModelScope.launch { onDone(id) }
     }
+
+    // Coach rotation (M4)
+    fun setCoach(enabled: Boolean, squad: List<String>) = act { engine.setCoach(enabled, squad) }
+    fun advanceShooter() = act { engine.advanceShooter() }
+
+    // Day plans (M4)
+    private fun localMinutes(): UInt {
+        val c = java.util.Calendar.getInstance()
+        return (c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)).toUInt()
+    }
+
+    fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
+
+    suspend fun loadPlan(id: String): PlanView? = withContext(worker) { runCatching { engine.loadPlan(id, localMinutes()) }.getOrNull() }
+
+    suspend fun drillVersion(id: String, version: UInt): DrillView? =
+        withContext(worker) { runCatching { engine.drillVersion(id, version) }.getOrNull() }
+
+    fun createPlan(title: String, date: String, kind: String, onDone: (String) -> Unit) = act {
+        val id = engine.createPlan(title, date, kind, true, System.currentTimeMillis())
+        viewModelScope.launch { onDone(id) }
+    }
+
+    /** Plan edits run on the worker, then `after` runs on the main thread (usually a reload). */
+    fun planEdit(after: () -> Unit, f: () -> Unit) = act {
+        f()
+        viewModelScope.launch { after() }
+    }
+
+    fun addPlanItem(planId: String, input: PlanItemInput, after: () -> Unit) = planEdit(after) { engine.addPlanItem(planId, input) }
+    fun setPlanNotes(planId: String, notes: String, after: () -> Unit) = planEdit(after) { engine.setPlanNotes(planId, notes) }
+    fun setItemNotes(id: String, notes: String, after: () -> Unit) = planEdit(after) { engine.setItemNotes(id, notes) }
+    fun setItemSkipped(id: String, skipped: Boolean, after: () -> Unit) = planEdit(after) { engine.setItemSkipped(id, skipped) }
+    fun movePlanItem(id: String, up: Boolean, after: () -> Unit) = planEdit(after) { engine.movePlanItem(id, up) }
+    fun deletePlanItem(id: String, after: () -> Unit) = planEdit(after) { engine.deletePlanItem(id) }
+    fun archivePlan(id: String, after: () -> Unit) = planEdit(after) { engine.archivePlan(id) }
+    fun addChecklistItem(planId: String?, text: String, after: () -> Unit) = planEdit(after) { engine.addChecklistItem(planId, text) }
+    fun setChecked(id: String, checked: Boolean, after: () -> Unit) = planEdit(after) { engine.setChecklistChecked(id, checked) }
+    fun deleteChecklistItem(id: String, after: () -> Unit) = planEdit(after) { engine.deleteChecklistItem(id) }
+    suspend fun checklistTemplate(): List<ChecklistView> = withContext(worker) { runCatching { engine.checklistTemplate() }.getOrDefault(emptyList()) }
 
     // Per-run review data
     suspend fun score(runId: String, profileId: String?): net.digitalgrease.squib.core.ScoreView? =
