@@ -219,6 +219,34 @@ fn build(path: &Path, att_root: &Path) -> Repository {
     .unwrap();
     repo.add_place(&SavedPlace { id: "pl-1".into(), label: "Club range".into(), lat: 40.0, lon: -105.0, created_utc_ms: 1 })
         .unwrap();
+    // A day plan whose drill item produced the manual run.
+    repo.create_plan(
+        &DayPlan {
+            id: "plan-1".into(),
+            title: "Club match".into(),
+            date_local: "2026-10-10".into(),
+            kind: "match".into(),
+            notes: "Squad 3".into(),
+            created_utc_ms: 2,
+        },
+        true,
+    )
+    .unwrap();
+    repo.add_plan_item(&PlanItem {
+        id: "item-1".into(),
+        plan_id: "plan-1".into(),
+        ordinal: 0,
+        kind: "stage".into(),
+        title: "Stage 1".into(),
+        time_local: Some("08:45".into()),
+        drill_id: None,
+        drill_version: None,
+        target_strings: None,
+        notes: "Low ready, 12 rounds".into(),
+        skipped: false,
+    })
+    .unwrap();
+    repo.link_run("item-1", "manual-1").unwrap();
     repo
 }
 
@@ -273,6 +301,10 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     assert_eq!(dst.round_counts().unwrap(), src.round_counts().unwrap());
     assert_eq!(dst.list_drills().unwrap(), src.list_drills().unwrap());
     assert_eq!(dst.list_places().unwrap(), src.list_places().unwrap());
+    assert_eq!(dst.list_plans().unwrap(), src.list_plans().unwrap());
+    assert_eq!(dst.plan_items("plan-1").unwrap(), src.plan_items("plan-1").unwrap());
+    assert_eq!(dst.item_progress("item-1").unwrap().completed, 1);
+    assert_eq!(dst.checklist(Some("plan-1")).unwrap(), src.checklist(Some("plan-1")).unwrap());
 
     // Importing the same backup again changes nothing.
     let again = import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();

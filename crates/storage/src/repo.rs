@@ -527,6 +527,7 @@ impl Repository {
                 expected_count: config.expected_count,
                 quality_warnings: warnings,
                 edited: latest.as_ref().is_some_and(|r| r.is_edited()),
+                shooter_id: config.shooter_id.clone(),
                 row,
             });
         }

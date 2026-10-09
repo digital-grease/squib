@@ -12,23 +12,26 @@
 //! - Raw PCM is never stored; only the coarse energy envelope.
 
 mod env;
+mod plans;
 mod records;
 mod repo;
 mod training;
 
 pub use env::*;
+pub use plans::*;
 pub use records::*;
 pub use repo::*;
 pub use training::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 pub const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_environment.sql")),
     (3, include_str!("migrations/0003_training.sql")),
+    (4, include_str!("migrations/0004_day_plans.sql")),
 ];
 
 // Migrations are numbered 1..=SCHEMA_VERSION with no gaps (checked at compile time).

@@ -44,6 +44,11 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("manual_string", &["run_id"], Merge::Exact),
     ("round_count", &["run_id"], Merge::Exact),
     ("attachment", &["id"], Merge::Exact),
+    // Plans stay editable (notes, skip, checks), so a local copy wins over an older backup.
+    ("day_plan", &["id"], Merge::KeepLocal),
+    ("plan_item", &["id"], Merge::KeepLocal),
+    ("plan_run", &["item_id", "run_id"], Merge::Exact),
+    ("checklist_item", &["id"], Merge::KeepLocal),
     ("saved_place", &["id"], Merge::Exact),
     ("env_override", &["field"], Merge::KeepLocal),
     ("app_setting", &["key"], Merge::KeepLocal),

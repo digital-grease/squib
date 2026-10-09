@@ -360,6 +360,7 @@ impl Repository {
                 .optional()?
                 .flatten();
             for t in [
+                "plan_run",
                 "attachment",
                 "round_count",
                 "manual_string",
@@ -416,7 +417,7 @@ impl Repository {
         })
     }
 
-    /// Delete every run, session, snapshot, drill, place, override, and cached document.
+    /// Delete every run, session, day plan, snapshot, drill, place, override, and cached document.
     pub fn delete_all_history(&mut self) -> Result<DeletionReport> {
         let ids: Vec<String> = {
             let mut st = self.conn.prepare("SELECT id FROM run")?;
@@ -424,6 +425,10 @@ impl Repository {
         };
         self.with_guard(move |tx, rep| {
             Self::delete_runs_tx(tx, &ids, rep)?;
+            // Day plans reference drills; the checklist template (plan_id NULL) is kept.
+            tx.execute("DELETE FROM checklist_item WHERE plan_id IS NOT NULL", [])?;
+            tx.execute("DELETE FROM plan_item", [])?;
+            tx.execute("DELETE FROM day_plan", [])?;
             for t in [
                 "session",
                 "environment_snapshot",

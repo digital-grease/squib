@@ -64,7 +64,7 @@ fn manual_run(repo: &mut Repository, session: &str, id: &str, times: &str, drill
 #[test]
 fn a14_drill_versions_and_runs_keep_their_version() {
     let mut repo = Repository::open_in_memory().unwrap();
-    assert_eq!(repo.schema_version().unwrap(), 3);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     let s = setup(&mut repo);
     let mut recipe = starter_recipes().remove(0);
     recipe.mode = SourceMode::ManualEntry;
@@ -220,7 +220,7 @@ fn upgrade_from_schema_2_with_data() {
         .unwrap();
     }
     let mut repo = Repository::open(&p).unwrap();
-    assert_eq!(repo.schema_version().unwrap(), 3);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     assert!(dir.join("journal.pre-v3.bak").exists());
     assert_eq!(repo.load_run("r1").unwrap().row.outcome, Some(Outcome::Complete));
     assert_eq!(repo.delete_run("r1").unwrap().runs, 1, "pre-existing runs can be deleted deliberately");
