@@ -11,6 +11,7 @@ pub mod dsp;
 pub mod engine;
 pub mod ffi;
 pub mod jni;
+pub mod plans_api;
 pub mod queue;
 pub mod registry;
 pub mod store;
@@ -19,6 +20,7 @@ pub mod training_api;
 pub use conditions::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
+pub use plans_api::*;
 pub use training_api::*;
 
 uniffi::setup_scaffolding!();

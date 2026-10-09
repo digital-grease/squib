@@ -124,6 +124,8 @@ pub struct ArmRequest {
     /// Drill version this run belongs to (pinned; later edits do not change it).
     pub drill_id: Option<String>,
     pub drill_version: Option<u32>,
+    /// Day-plan agenda item this run counts toward, if any.
+    pub plan_item_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -286,6 +288,8 @@ pub struct RunListItem {
     pub expected_count: Option<u32>,
     pub quality_warnings: u32,
     pub edited: bool,
+    /// Display name of the shooter at the time of listing (renames apply).
+    pub shooter_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

@@ -231,7 +231,7 @@ fn from_recipe(r: &DrillRecipe) -> DrillInput {
     }
 }
 
-fn drill_view(v: &DrillVersion) -> DrillView {
+pub(crate) fn drill_view(v: &DrillVersion) -> DrillView {
     DrillView {
         drill_id: v.drill_id.clone(),
         version: v.version,

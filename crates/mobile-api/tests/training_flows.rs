@@ -31,6 +31,7 @@ fn arm_req(drill: Option<(String, u32)>) -> ArmRequest {
         expected_rate_hz: 48_000,
         drill_id: drill.clone().map(|d| d.0),
         drill_version: drill.map(|d| d.1),
+        plan_item_id: None,
     }
 }
 

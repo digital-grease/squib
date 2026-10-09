@@ -100,6 +100,7 @@ impl Sim {
             expected_rate_hz: self.expected_rate,
             drill_id: None,
             drill_version: None,
+            plan_item_id: None,
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
         self.handle_effects(&v.effects.clone());

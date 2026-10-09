@@ -145,6 +145,7 @@ fn a13_runs_pin_redacted_snapshots_that_later_refreshes_do_not_change() {
         expected_rate_hz: 48_000,
         drill_id: None,
         drill_version: None,
+        plan_item_id: None,
     };
     let v = e.arm("a1".into(), req, 1_000_000_000).unwrap();
     let run_id = v.run_id.unwrap();
@@ -186,6 +187,7 @@ fn precise_retention_is_opt_in() {
         expected_rate_hz: 48_000,
         drill_id: None,
         drill_version: None,
+        plan_item_id: None,
     };
     let run_id = e.arm("a1".into(), req, 1_000_000_000).unwrap().run_id.unwrap();
     let pinned = e.run_conditions(run_id).unwrap().unwrap();

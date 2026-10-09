@@ -84,6 +84,7 @@ impl Capture {
 
 struct ActiveRun {
     run_id: String,
+    plan_item_id: Option<String>,
     session_id: String,
     config: RunConfig,
     created_utc_ms: i64,
@@ -205,6 +206,16 @@ impl SquibEngine {
                     config: run.config.clone(),
                 };
                 let r = self.store.call(|tx| StoreCmd::Intent(Box::new(intent), tx));
+                // Same writer queue, so the link lands after the run row it references.
+                if r.is_ok()
+                    && let Some(item) = run.plan_item_id.clone()
+                {
+                    let rid = run.run_id.clone();
+                    // The item was checked at arm; if it was deleted since, the run simply stays unlinked.
+                    self.store.send(StoreCmd::Exec(Box::new(move |repo| {
+                        let _ = repo.link_run(&item, &rid);
+                    })));
+                }
                 Some(Input::IntentPersisted { ok: r.is_ok(), error: r.err().map(|e| e.to_string()), now_ns })
             }
             Effect::StartCapture => {
@@ -840,6 +851,11 @@ impl SquibEngine {
         let environment_snapshot_id = self.pin_conditions(req.now_utc_ms)?;
         let config = RunConfig { environment_snapshot_id, ..config };
         config.validate().map_err(rejected)?;
+        if let Some(item) = &req.plan_item_id
+            && !self.read().plan_item_exists(item)?
+        {
+            return Err(SquibError::NotFound(format!("plan item {item}")));
+        }
         let session_id = self.store.call(|reply| StoreCmd::Session {
             shooter: self.active_shooter(),
             new_id: new_id(),
@@ -850,6 +866,7 @@ impl SquibEngine {
         let run_id = new_id();
         g.run = Some(ActiveRun {
             run_id: run_id.clone(),
+            plan_item_id: req.plan_item_id.clone(),
             session_id,
             config: config.clone(),
             created_utc_ms: req.now_utc_ms,
@@ -1088,8 +1105,9 @@ impl SquibEngine {
     }
 
     pub fn list_runs(&self, limit: u32) -> Result<Vec<RunListItem>, SquibError> {
-        Ok(self
-            .read()
+        let repo = self.read();
+        let names: BTreeMap<String, String> = repo.list_shooters()?.into_iter().map(|s| (s.id, s.name)).collect();
+        Ok(repo
             .list_runs(limit.min(1000))?
             .into_iter()
             .map(|s| RunListItem {
@@ -1107,6 +1125,7 @@ impl SquibEngine {
                 expected_count: s.expected_count,
                 quality_warnings: s.quality_warnings,
                 edited: s.edited,
+                shooter_name: names.get(&s.shooter_id).cloned().unwrap_or_else(|| s.shooter_id.clone()),
             })
             .collect())
     }
