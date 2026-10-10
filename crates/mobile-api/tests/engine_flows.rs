@@ -36,6 +36,7 @@ fn route() -> RouteReport {
         device_model: "simulator".into(),
         media_volume: 0.8,
         mic_permission: true,
+        camera_recording: false,
     }
 }
 
@@ -101,6 +102,7 @@ impl Sim {
             drill_id: None,
             drill_version: None,
             plan_item_id: None,
+            video: false,
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
         self.handle_effects(&v.effects.clone());
@@ -537,4 +539,89 @@ fn a18_no_raw_pcm_is_written() {
 
 fn db_path_existing(name: &str) -> String {
     std::env::temp_dir().join(format!("squib-engine-{name}-{}", std::process::id())).join("journal.db").to_string_lossy().into()
+}
+
+fn clip_meta(first_frame_ns: i64, probe_delta_ns: i64) -> VideoMeta {
+    VideoMeta {
+        mime: "video/mp4".into(),
+        width: 1280,
+        height: 720,
+        frame_rate: 30.0,
+        duration_ms: 60_000,
+        first_frame_camera_ns: first_frame_ns,
+        camera_clock: "unknown".into(),
+        probe_camera_ns: first_frame_ns,
+        probe_mono_ns: first_frame_ns + probe_delta_ns,
+        probe_boot_ns: first_frame_ns + probe_delta_ns + 10_000_000_000,
+        start_boot_minus_mono_ns: 10_000_000_000,
+        end_boot_minus_mono_ns: 10_000_000_000,
+    }
+}
+
+#[test]
+fn video_markers_come_from_run_events_and_review_edits() {
+    let mut s = Sim::new("video");
+    s.shot_offsets_ms = vec![700.0, 1000.0, 1350.0];
+    // Video changes the route: calibration from a non-video route does not apply.
+    let pf = s.eng.preflight(Mode::PhoneLive, RouteReport { camera_recording: true, ..route() }, RATE);
+    assert!(pf.messages.iter().any(|m| m.contains("Video is on")));
+    assert_ne!(pf.route_signature, s.eng.preflight(Mode::PhoneLive, route(), RATE).route_signature);
+    // Recording starts before arming, at simulated time zero.
+    let first_frame = s.now();
+    s.arm(Mode::PhoneLive, StartDelay::Random { min_ms: 800, max_ms: 1200 }, vec![], None);
+    s.settle("running");
+    s.run_ms(2000);
+    s.eng.stop("stop".into(), s.now()).unwrap();
+    let run_id = s.settle("saved").run_id.unwrap();
+
+    let dir = std::env::temp_dir().join(format!("squib-video-att-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("videos")).unwrap();
+    std::fs::write(dir.join("videos/a.mp4"), b"not really mp4").unwrap();
+    let root = dir.to_string_lossy().to_string();
+    let v =
+        s.eng.register_video(run_id.clone(), root.clone(), "videos/a.mp4".into(), clip_meta(first_frame, 30_000_000), 5).unwrap();
+    assert_eq!(v.mapping, "assumed", "unknown camera clock is never reported as measured");
+    assert_eq!(v.uncertainty_ms, 33);
+    let start = v.markers.iter().find(|m| m.kind == "start").unwrap();
+    assert!(start.file_ms > 0);
+    let shots: Vec<_> = v.markers.iter().filter(|m| m.kind == "shot").collect();
+    assert_eq!(shots.len(), 3);
+    for (m, want) in shots.iter().zip([700, 1000, 1350]) {
+        assert!((m.run_ms - want).abs() <= 1, "{m:?}");
+        assert_eq!(m.file_ms - start.file_ms, m.run_ms, "file position follows the run timeline");
+        assert!(!m.edited && !m.approximate);
+    }
+    assert!(v.markers.windows(2).all(|w| w[0].file_ms <= w[1].file_ms));
+
+    // A manual addition in review shows up as edited and approximate.
+    let r = s.eng.load_review(run_id.clone()).unwrap();
+    s.eng
+        .apply_review(
+            run_id.clone(),
+            r.revision_number,
+            vec![ReviewAction::AddManual { timeline_ns: 1_800_000_000 }],
+            None,
+            s.utc + 1,
+        )
+        .unwrap();
+    let v = s.eng.run_videos(run_id.clone()).unwrap().remove(0);
+    let manual = v.markers.iter().find(|m| m.run_ms == 1800).unwrap();
+    assert!(manual.edited && manual.approximate);
+
+    // Clocks that disagree give a playable clip without markers.
+    std::fs::write(dir.join("videos/b.mp4"), b"x").unwrap();
+    let bad =
+        s.eng.register_video(run_id.clone(), root, "videos/b.mp4".into(), clip_meta(first_frame, 9_000_000_000), 6).unwrap();
+    assert_eq!(bad.mapping, "unavailable");
+    assert!(bad.markers.is_empty() && bad.mapping_note.starts_with("Not aligned"));
+
+    // The problem report carries clock evidence, not the clip.
+    let report = s.eng.diagnostic_report("d".into(), "a".into(), "v".into());
+    assert!(report.contains("video | clock unknown | mapping assumed | camera minus callback clock -30.0 ms"), "{report}");
+    assert!(!report.contains("videos/"));
+
+    // Videos are not photos, and deleting the run removes both clips.
+    assert!(s.eng.run_attachments(run_id.clone()).is_empty());
+    let d = s.eng.delete_run(run_id).unwrap();
+    assert_eq!(d.attachment_paths.len(), 2);
 }

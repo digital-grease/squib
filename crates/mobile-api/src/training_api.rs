@@ -491,6 +491,7 @@ impl SquibEngine {
             equipment_version_id: None,
             environment_snapshot_id: self.pin_conditions(now_utc_ms)?,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+            capture_video: false,
             app_build,
         };
         config.validate().map_err(inval)?;
@@ -621,6 +622,7 @@ impl SquibEngine {
             .list_attachments(Some(&run_id))
             .unwrap_or_default()
             .into_iter()
+            .filter(|a| a.kind == "photo")
             .map(|a| AttachmentView {
                 id: a.id,
                 relative_path: a.relative_path,
@@ -763,6 +765,21 @@ impl SquibEngine {
                 s.accepted_count.unwrap_or(0),
                 quality.join(", "),
             ));
+            // Video clock evidence for qualification: timing numbers only, never the clip.
+            for c in repo.video_clips(&s.row.run_id).unwrap_or_default() {
+                let status = crate::video_api::mapping_label(&c);
+                out.push_str(&format!(
+                    "  video | clock {} | mapping {} | camera minus callback clock {:+.1} ms | boot-mono drift {:.3} ms | {}x{} {:.1} fps {} ms\n",
+                    c.camera_clock,
+                    status,
+                    (c.probe_camera_ns - if c.camera_clock == "realtime" { c.probe_boot_ns } else { c.probe_mono_ns }) as f64 / 1e6,
+                    (c.end_boot_minus_mono_ns - c.start_boot_minus_mono_ns) as f64 / 1e6,
+                    c.width,
+                    c.height,
+                    c.frame_rate_milli as f64 / 1000.0,
+                    c.duration_ms,
+                ));
+            }
         }
         out
     }

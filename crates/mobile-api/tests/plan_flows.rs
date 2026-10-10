@@ -32,6 +32,7 @@ fn arm_req(item: Option<String>) -> ArmRequest {
         drill_id: None,
         drill_version: None,
         plan_item_id: item,
+        video: false,
     }
 }
 

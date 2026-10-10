@@ -54,6 +54,7 @@ fn route_info(r: &RouteReport) -> RouteInfo {
         effects: r.effects.clone(),
         os_build: r.os_build.clone(),
         device_model: r.device_model.clone(),
+        camera_recording: r.camera_recording,
     }
 }
 
@@ -758,6 +759,12 @@ impl SquibEngine {
                 if !route.effects.is_empty() {
                     warn.push(format!("Platform audio effects active: {}.", route.effects.join(", ")));
                 }
+                if route.camera_recording {
+                    warn.push(
+                        "Video is on: recording video may change how the microphone is processed. Live timing with video has not been tested on any phone; sensitivity setups made without video do not apply."
+                            .into(),
+                    );
+                }
                 warn.push("Experimental: shot timing on this phone and route has not been field-qualified.".into());
             }
         }
@@ -845,6 +852,7 @@ impl SquibEngine {
             equipment_version_id: None,
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+            capture_video: req.video,
             app_build: req.app_build.clone(),
         };
         // Conditions are pinned before the run intent so the snapshot reference is valid.

@@ -76,6 +76,8 @@ pub struct RouteReport {
     /// Media volume as a fraction of maximum.
     pub media_volume: f32,
     pub mic_permission: bool,
+    /// The camera is (or will be) recording video during this capture.
+    pub camera_recording: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -126,6 +128,8 @@ pub struct ArmRequest {
     pub drill_version: Option<u32>,
     /// Day-plan agenda item this run counts toward, if any.
     pub plan_item_id: Option<String>,
+    /// Opt-in: the platform records a video clip (no audio track) for this run.
+    pub video: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

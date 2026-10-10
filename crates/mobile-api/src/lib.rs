@@ -16,12 +16,14 @@ pub mod queue;
 pub mod registry;
 pub mod store;
 pub mod training_api;
+pub mod video_api;
 
 pub use conditions::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
 pub use plans_api::*;
 pub use training_api::*;
+pub use video_api::*;
 
 uniffi::setup_scaffolding!();
 
