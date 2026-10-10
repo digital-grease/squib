@@ -47,6 +47,11 @@ class PracticeFlowTest {
         rule.waitUntil(5_000) { has("manual results") }
         rule.onNodeWithText("Include manual").performClick()
         rule.waitUntil(5_000) { has("too few for a trend") }
+        // Charts and the speed/score list come from the same included runs.
+        rule.onNodeWithTag("toggle_charts").performScrollTo().performClick()
+        rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("trend_s")).fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("speed_score_list")).fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(5_000) { has("Fewer than five runs") }
     }
 
     @Test

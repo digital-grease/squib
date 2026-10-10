@@ -123,6 +123,20 @@ private fun AnalyticsCard(d: DataController) {
                 if (v.mixedTimingMethods.isNotEmpty()) {
                     Text("Mixed timing sources: ${v.mixedTimingMethods.joinToString()}; precision differs.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
+                var charts by remember { mutableStateOf(false) }
+                if (v.points.isNotEmpty()) {
+                    TextButton(onClick = { charts = !charts }, modifier = Modifier.heightIn(min = 48.dp).testTag("toggle_charts")) {
+                        Text(if (charts) "Hide charts and runs" else "Show charts and runs")
+                    }
+                }
+                if (charts) {
+                    TrendChart("Final time", v.points.mapNotNull { it.finalS }, "s")
+                    TrendChart("Hit factor", v.points.mapNotNull { it.hitFactor }, "hf")
+                    HistogramChart("Final time distribution", v.finalTimeBins, "s")
+                    HistogramChart("Hit factor distribution", v.hitFactorBins, "hf")
+                    if (v.insufficient) Text("Fewer than five runs: the chart shows values, not a trend.", style = MaterialTheme.typography.bodySmall)
+                    SpeedScoreList(v.points)
+                }
             }
         }
     }
