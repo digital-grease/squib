@@ -297,6 +297,7 @@ pub struct RunListItem {
     pub edited: bool,
     /// Display name of the shooter at the time of listing (renames apply).
     pub shooter_name: String,
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

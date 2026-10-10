@@ -152,25 +152,6 @@ impl Repository {
     }
 
     /// Return the active session for the shooter, creating one with `new_id` if none.
-    pub fn active_session(&self, shooter_id: &str, new_id: &str, now_utc_ms: i64, tz_offset_min: i32) -> Result<String> {
-        let existing: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT id FROM session WHERE shooter_id = ?1 AND active = 1 ORDER BY started_utc_ms DESC LIMIT 1",
-                params![shooter_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(id) = existing {
-            return Ok(id);
-        }
-        self.conn.execute(
-            "INSERT INTO session(id, shooter_id, started_utc_ms, tz_offset_min, active) VALUES (?1, ?2, ?3, ?4, 1)",
-            params![new_id, shooter_id, now_utc_ms, tz_offset_min],
-        )?;
-        Ok(new_id.to_string())
-    }
-
     /// Durably record the run intent and immutable configuration before arming.
     pub fn insert_run_intent(&mut self, intent: &RunIntent) -> Result<()> {
         intent.config.validate().map_err(|e| StorageError::Conflict(format!("invalid configuration: {e}")))?;

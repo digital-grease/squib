@@ -16,6 +16,7 @@ pub mod jni;
 pub mod plans_api;
 pub mod queue;
 pub mod registry;
+pub mod sessions_api;
 pub mod store;
 pub mod training_api;
 pub mod video_api;
@@ -25,6 +26,7 @@ pub use diagnostic_api::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
 pub use plans_api::*;
+pub use sessions_api::*;
 pub use training_api::*;
 pub use video_api::*;
 

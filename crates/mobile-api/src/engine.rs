@@ -1231,6 +1231,7 @@ impl SquibEngine {
                 quality_warnings: s.quality_warnings,
                 edited: s.edited,
                 shooter_name: names.get(&s.shooter_id).cloned().unwrap_or_else(|| s.shooter_id.clone()),
+                session_id: s.row.session_id.clone(),
             })
             .collect())
     }

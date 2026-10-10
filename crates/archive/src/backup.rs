@@ -28,7 +28,8 @@ enum Merge {
 /// `provider_cache` (re-fetchable) and `deletion_guard` are never exported.
 const TABLES: &[(&str, &[&str], Merge)] = &[
     ("shooter_profile", &["id"], Merge::KeepLocal),
-    ("session", &["id"], Merge::Exact),
+    // Sessions gain notes, cost, and an end time after creation: the local copy wins.
+    ("session", &["id"], Merge::KeepLocal),
     ("calibration_profile_version", &["id"], Merge::Exact),
     ("environment_snapshot", &["id"], Merge::Exact),
     ("drill", &["id"], Merge::Exact),
