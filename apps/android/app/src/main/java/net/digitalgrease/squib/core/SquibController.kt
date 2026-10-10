@@ -25,6 +25,10 @@ import net.digitalgrease.squib.SquibApp
 import net.digitalgrease.squib.audio.AudioCapture
 import net.digitalgrease.squib.audio.CuePlayer
 import net.digitalgrease.squib.audio.RouteInspector
+import net.digitalgrease.squib.video.ClipRecorder
+import android.graphics.SurfaceTexture
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 
 /** Timer settings edited on the Timer screen. Times in milliseconds. */
 data class TimerSettings(
@@ -48,6 +52,8 @@ data class TimerSettings(
     /** Day-plan agenda item the runs count toward. */
     val planItemId: String? = null,
     val planTitle: String? = null,
+    /** Opt-in video clip (video only, no sound) recorded with each run. */
+    val video: Boolean = false,
 )
 
 enum class DelayKind { INSTANT, FIXED, RANDOM }
@@ -113,6 +119,20 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     val recovered: List<RecoveredRunView> = engine.recoveredRuns()
     private var lastArm: ArmRequest? = null
 
+    // ---- Video (M4 proof of concept) ----
+    private val recorder = ClipRecorder(app)
+    private val attachmentRoot = File(app.filesDir, "attachments")
+    /** Relative path of the clip being recorded and the run it belongs to. */
+    @Volatile private var videoClip: String? = null
+    private var videoRunId: String? = null
+    private var videoFinish: Job? = null
+    @Volatile private var preview: SurfaceTexture? = null
+
+    /** The Timer's preview surface; recording works without one. */
+    fun setPreview(t: SurfaceTexture?) {
+        preview = t
+    }
+
     init {
         cueThread.execute { runCatching { cuePlayer.prepare() } }
         refreshPreflight()
@@ -127,7 +147,9 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     fun refreshPreflight() {
         viewModelScope.launch(control) {
             val route = inspector.expectedRoute()
-            _preflight.value = engine.preflight(_settings.value.mode, route, inspector.expectedRateHz().toUInt())
+            _preflight.value = engine.preflight(
+                _settings.value.mode, route.copy(cameraRecording = _settings.value.video), inspector.expectedRateHz().toUInt(),
+            )
         }
     }
 
@@ -167,7 +189,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             expectedCount = s.expectedCountText.trim().toIntOrNull()?.toUInt(),
             thresholdDb = s.manualThresholdDb,
             calibrationId = pf?.calibrationId,
-            route = if (s.mode == Mode.PHONE_LIVE) inspector.expectedRoute() else null,
+            route = if (s.mode == Mode.PHONE_LIVE) inspector.expectedRoute().copy(cameraRecording = s.video) else null,
             nowUtcMs = System.currentTimeMillis(),
             tzOffsetMin = tz(),
             appBuild = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
@@ -175,6 +197,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             drillId = s.drillId,
             drillVersion = s.drillVersion,
             planItemId = s.planItemId,
+            video = s.video,
         )
         armWith(req)
     }
@@ -194,6 +217,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
         val i = d.input
         val delay = i.delay
         _settings.value = TimerSettings(
+            video = _settings.value.video,
             mode = i.mode,
             delayKind = when (delay) {
                 is StartDelay.Instant -> DelayKind.INSTANT
@@ -226,7 +250,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     private fun armWith(req: ArmRequest) {
         viewModelScope.launch(control) {
             if (req.mode == Mode.PHONE_LIVE) {
-                val pf = engine.preflight(req.mode, inspector.expectedRoute(), inspector.expectedRateHz().toUInt())
+                val pf = engine.preflight(req.mode, inspector.expectedRoute().copy(cameraRecording = req.video), inspector.expectedRateHz().toUInt())
                 _preflight.value = pf
                 if (!pf.canArm) {
                     _message.value = pf.messages.firstOrNull() ?: "This route cannot be used for live timing."
@@ -237,12 +261,21 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                 _message.value = "Another app is using audio (for example a call), so cues may not be heard. Try again when it stops."
                 return@launch
             }
+            // Video starts first, so any change the camera makes to the audio path happens
+            // before the microphone opens rather than mid-run.
+            if (req.video && !startVideo()) {
+                abandonFocus()
+                return@launch
+            }
             try {
                 lastArm = req
-                apply(engine.arm(UUID.randomUUID().toString(), req, System.nanoTime()))
+                val v = engine.arm(UUID.randomUUID().toString(), req, System.nanoTime())
+                if (req.video) videoRunId = v.runId
+                apply(v)
                 startLoop()
             } catch (e: SquibException) {
                 _message.value = e.message
+                if (req.video) finishVideo(keep = false)
             }
         }
     }
@@ -305,6 +338,43 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     private fun apply(v: EngineView) {
         _view.value = v
         handleEffects(v.effects)
+        if (videoClip != null && !v.active && v.phase != "ready") {
+            // Cancelled runs record no timing and failed starts have no run: their clips are discarded.
+            finishVideo(keep = v.phase !in setOf("cancelled", "failed"))
+        }
+    }
+
+    private suspend fun startVideo(): Boolean {
+        videoFinish?.join()
+        val rel = "videos/${UUID.randomUUID()}.mp4"
+        val err = withContext(Dispatchers.IO) { recorder.start(File(attachmentRoot, rel), preview) }
+        if (err != null) {
+            _message.value = "Video could not start: $err Turn video off to time without it."
+            return false
+        }
+        videoClip = rel
+        return true
+    }
+
+    private fun finishVideo(keep: Boolean) {
+        val rel = videoClip ?: return
+        val runId = videoRunId
+        videoClip = null
+        videoRunId = null
+        videoFinish = viewModelScope.launch(Dispatchers.IO) {
+            val r = recorder.stop()
+            if (r == null) return@launch
+            if (!keep || runId == null) {
+                r.file.delete()
+                return@launch
+            }
+            try {
+                engine.registerVideo(runId, attachmentRoot.absolutePath, rel, r.meta, System.currentTimeMillis())
+            } catch (e: SquibException) {
+                r.file.delete()
+                _message.value = "The video clip could not be saved: ${e.message}"
+            }
+        }
     }
 
     private fun handleEffects(effects: List<NativeEffect>) {
@@ -339,7 +409,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             override fun onOpened(info: AudioCapture.OpenedInfo): Long {
                 val route = inspector.report(info.input, cuePlayer.routedOutput().let {
                     if (it == "unknown") expected.outputDevice else it
-                }, info.source, info.effects)
+                }, info.source, info.effects).copy(cameraRecording = videoClip != null)
                 captureRoute = route
                 val meta = CaptureMeta(
                     sampleRateHz = info.sampleRateHz.toUInt(),
@@ -470,6 +540,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     fun coreVersions(): List<String> = net.digitalgrease.squib.core.coreVersions()
 
     override fun onCleared() {
+        recorder.release()
         abandonFocus()
         capture?.stop()
         cuePlayer.release()

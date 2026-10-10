@@ -168,6 +168,8 @@ fun ReviewScreen(
             cv.attribution.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
 
+        // Markers follow the latest revision, so reload after each review edit.
+        androidx.compose.runtime.key(r.revisionNumber) { VideoSection(d, runId) }
         ScoreCard(d, runId)
         RoundsCard(d, runId, r.mode)
         PhotosAndShare(d, runId, onAddPhoto, onShare, onDeleted = onBack)

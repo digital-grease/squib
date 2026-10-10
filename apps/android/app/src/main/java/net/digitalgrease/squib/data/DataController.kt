@@ -194,6 +194,9 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     suspend fun attachments(runId: String): List<net.digitalgrease.squib.core.AttachmentView> =
         withContext(worker) { engine.runAttachments(runId) }
 
+    suspend fun videos(runId: String): List<net.digitalgrease.squib.core.VideoClipView> =
+        withContext(worker) { runCatching { engine.runVideos(runId) }.getOrDefault(emptyList()) }
+
     suspend fun shareJson(runIds: List<String>): String = withContext(worker) { engine.shareResults(runIds) }
 
     // Rounds
@@ -218,7 +221,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         val v = engine.exportBackup(tmp.absolutePath, if (includePhotos) attachmentRoot.absolutePath else null, BuildConfig.VERSION_NAME, System.currentTimeMillis())
         app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
         tmp.delete()
-        _message.value = "Backup saved: ${v.runs} runs, ${v.attachments} photos, ${v.bytes / 1024u} KB. " +
+        _message.value = "Backup saved: ${v.runs} runs, ${v.attachments} photos and videos, ${v.bytes / 1024u} KB. " +
             "It is not encrypted" + (if (v.containsLocation) " and contains saved places or location detail." else ".")
     }
 
@@ -245,7 +248,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         _pendingImport.value = null
         val v = engine.importBackup(file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath)
         file.delete()
-        _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos."
+        _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos and videos."
     }
 
     fun cancelImport() {

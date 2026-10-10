@@ -56,11 +56,11 @@ fun DataScreen(
             Column(Modifier.padding(12.dp)) {
                 Text("Private backup", fontWeight = FontWeight.Bold)
                 Text(
-                    "A full copy of your history to restore on this or another phone. It is not encrypted and is private: it can include saved places, notes, and photos. Store it somewhere you trust.",
+                    "A full copy of your history to restore on this or another phone. It is not encrypted and is private: it can include saved places, notes, photos, and videos. Store it somewhere you trust.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Include photos", modifier = Modifier.weight(1f))
+                    Text("Include photos and videos", modifier = Modifier.weight(1f))
                     Switch(checked = photos, onCheckedChange = { photos = it })
                 }
                 Button(onClick = { onExportBackup(photos) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save backup") }
@@ -105,7 +105,7 @@ fun DataScreen(
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
             Column(Modifier.padding(12.dp)) {
                 Text("Delete all history", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                Text("Removes every run, drill, saved place, photo, and cached weather on this phone. Backups you saved elsewhere are not affected.", style = MaterialTheme.typography.bodySmall)
+                Text("Removes every run, drill, saved place, photo, video, and cached weather on this phone. Backups you saved elsewhere are not affected.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { confirmDelete = 1 }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete all history") }
             }

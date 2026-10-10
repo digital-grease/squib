@@ -74,6 +74,23 @@ class MainActivity : ComponentActivity() {
         controller.refreshPreflight()
     }
     private val deniedMessage = mutableStateOf(false)
+    private var afterCamera: (() -> Unit)? = null
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val next = afterCamera
+        afterCamera = null
+        if (granted) next?.invoke() else cameraDenied.value = true
+    }
+    private val cameraDenied = mutableStateOf(false)
+
+    /** Camera is requested only when a run with video is armed. */
+    private fun withCamera(then: () -> Unit) {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            then()
+        } else {
+            afterCamera = then
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
     private val data: DataController by viewModels()
     private var photoRun: String? = null
     private var backupWithPhotos = true
@@ -220,7 +237,7 @@ class MainActivity : ComponentActivity() {
                             tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
                             tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" })
                             tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
-                            else -> TimerScreen(controller, data, ::withMic, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
+                            else -> TimerScreen(controller, data, ::withMic, ::withCamera, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }
                     }
                 }
@@ -243,6 +260,14 @@ class MainActivity : ComponentActivity() {
                         onDismissRequest = { locationDenied.value = false },
                         confirmButton = { TextButton(onClick = { locationDenied.value = false }) { Text("OK") } },
                         text = { Text("Location permission was not granted. You can enter coordinates or use a saved place instead.") },
+                    )
+                }
+                val camDenied by cameraDenied
+                if (camDenied) {
+                    AlertDialog(
+                        onDismissRequest = { cameraDenied.value = false },
+                        confirmButton = { TextButton(onClick = { cameraDenied.value = false }) { Text("OK") } },
+                        text = { Text("Camera permission was not granted. Turn video off to time runs without it.") },
                     )
                 }
                 if (denied) {

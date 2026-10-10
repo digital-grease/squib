@@ -68,6 +68,7 @@ class RouteInspector(private val context: Context) {
         deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
         mediaVolume = mediaVolume(),
         micPermission = micPermission(),
+        cameraRecording = false,
     )
 
     companion object {

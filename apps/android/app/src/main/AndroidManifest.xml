@@ -14,6 +14,10 @@
     <uses-feature android:name="android.hardware.sensor.barometer" android:required="false" />
 
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Requested only when the user turns on video for a run. Clips are video only
+         (no sound) and stay in app storage unless the user exports a backup. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Journal stays on the device: OS backup is off until the portable export (M3)
          provides a consistent, explicit backup. See ADR-016. -->

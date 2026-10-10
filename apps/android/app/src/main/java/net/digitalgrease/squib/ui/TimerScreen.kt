@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,7 @@ fun TimerScreen(
     c: SquibController,
     d: DataController,
     onRequestMic: (then: () -> Unit) -> Unit,
+    onRequestCamera: (then: () -> Unit) -> Unit,
     onReview: (String) -> Unit,
     onSetup: () -> Unit,
 ) {
@@ -96,6 +98,21 @@ fun TimerScreen(
                     label = { Text("Live shots (experimental)") },
                     modifier = Modifier.heightIn(min = 48.dp).testTag("mode_live"),
                 )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("video_toggle").toggleable(
+                    value = s.video, role = androidx.compose.ui.semantics.Role.Switch,
+                    onValueChange = { b -> c.updateSettings { it.copy(video = b) } },
+                ),
+            ) {
+                Switch(checked = s.video, onCheckedChange = null)
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("Record video (experimental)")
+                    Text("Video only, no sound. Clips stay on this phone, take about 20 MB per minute, and are limited to 2 minutes.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text("Start delay (max 30 s)", style = MaterialTheme.typography.titleMedium)
@@ -168,11 +185,13 @@ fun TimerScreen(
             s.validate()?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
         }
 
+        if (s.video) VideoPreview(c)
         Spacer(Modifier.height(12.dp))
         StatusPanel(v)
         Spacer(Modifier.height(12.dp))
         MainAction(v, s.validate() == null && (pf?.canArm != false), onArm = {
-            if (s.mode == Mode.PHONE_LIVE) onRequestMic { c.arm() } else c.arm()
+            val armNow = { if (s.video) onRequestCamera { c.arm() } else c.arm() }
+            if (s.mode == Mode.PHONE_LIVE) onRequestMic { armNow() } else armNow()
         }, c = c)
 
         if (v.phase in setOf("saved", "save_pending", "cancelled", "failed")) {
@@ -183,6 +202,29 @@ fun TimerScreen(
             ResultActions(v, c, onReview)
         }
     }
+}
+
+/** Camera preview while recording; the camera opens only when a run is armed. */
+@Composable
+private fun VideoPreview(c: SquibController) {
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { ctx ->
+            android.view.TextureView(ctx).apply {
+                surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(t: android.graphics.SurfaceTexture, w: Int, h: Int) = c.setPreview(t)
+                    override fun onSurfaceTextureSizeChanged(t: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+                    override fun onSurfaceTextureDestroyed(t: android.graphics.SurfaceTexture): Boolean {
+                        c.setPreview(null)
+                        return true
+                    }
+                    override fun onSurfaceTextureUpdated(t: android.graphics.SurfaceTexture) {}
+                }
+            }
+        },
+        modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 8.dp).background(Color.Black).testTag("video_preview"),
+    )
+    Text("Camera starts when you arm. Aim it before the start; video does not change the timer's beeps.",
+        style = MaterialTheme.typography.bodySmall)
 }
 
 /** Rest between strings: a separate visible timer, never a hidden start countdown. */
