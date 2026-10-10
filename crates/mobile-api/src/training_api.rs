@@ -158,6 +158,33 @@ pub struct AnalyticsView {
     pub insufficient: bool,
     pub mixed_timing_methods: Vec<String>,
     pub calc_version: String,
+    /// Included runs in time order, for the chart and the speed/score list.
+    pub points: Vec<HistoryPointView>,
+    pub final_time_bins: Vec<BinView>,
+    pub hit_factor_bins: Vec<BinView>,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct HistoryPointView {
+    pub run_id: String,
+    pub created_utc_ms: i64,
+    pub final_s: Option<f64>,
+    pub hit_factor: Option<f64>,
+    pub score_complete: bool,
+    pub edited: bool,
+    pub manual: bool,
+    pub timing_method: String,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct BinView {
+    pub lo: f64,
+    pub hi: f64,
+    pub count: u32,
+}
+
+fn bins_view(b: Vec<squib_training::analytics::Bin>) -> Vec<BinView> {
+    b.into_iter().map(|b| BinView { lo: b.lo, hi: b.hi, count: b.count }).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -604,6 +631,22 @@ impl SquibEngine {
             insufficient: s.insufficient,
             mixed_timing_methods: s.mixed_timing_methods,
             calc_version: s.calc_version,
+            points: s
+                .points
+                .into_iter()
+                .map(|p| HistoryPointView {
+                    run_id: p.run_id,
+                    created_utc_ms: p.created_utc_ms,
+                    final_s: p.final_s,
+                    hit_factor: p.hit_factor,
+                    score_complete: p.score_complete,
+                    edited: p.edited,
+                    manual: p.manual,
+                    timing_method: p.timing_method,
+                })
+                .collect(),
+            final_time_bins: bins_view(s.final_time_bins),
+            hit_factor_bins: bins_view(s.hit_factor_bins),
         })
     }
 

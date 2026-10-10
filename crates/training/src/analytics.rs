@@ -153,6 +153,56 @@ pub struct Summary {
     pub sources: Vec<(String, Option<u32>, Option<u32>)>,
     /// Mixed timing methods among included runs (quantization/quality differs).
     pub mixed_timing_methods: Vec<String>,
+    /// Included runs in time order, speed and score side by side (doc 07 "Analytics").
+    pub points: Vec<HistoryPoint>,
+    /// Equal-width distribution of included final times (seconds) and hit factors.
+    pub final_time_bins: Vec<Bin>,
+    pub hit_factor_bins: Vec<Bin>,
+}
+
+/// One included run as plotted and listed: values only where they are valid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryPoint {
+    pub run_id: String,
+    pub created_utc_ms: i64,
+    /// Final time in seconds; only for runs with a resolved start.
+    pub final_s: Option<f64>,
+    pub hit_factor: Option<f64>,
+    pub score_complete: bool,
+    pub edited: bool,
+    pub manual: bool,
+    pub timing_method: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bin {
+    /// Inclusive lower and upper edges (the last bin includes its upper edge).
+    pub lo: f64,
+    pub hi: f64,
+    pub count: u32,
+}
+
+/// Equal-width bins over `[min, max]`, about sqrt(n) of them (1 to 10). Every value
+/// lands in exactly one bin; identical values give one bin.
+pub fn histogram(values: &[f64]) -> Vec<Bin> {
+    let v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
+    if v.is_empty() {
+        return vec![];
+    }
+    let lo = v.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if hi - lo <= f64::EPSILON * hi.abs().max(1.0) {
+        return vec![Bin { lo, hi, count: v.len() as u32 }];
+    }
+    let n = ((v.len() as f64).sqrt().ceil() as usize).clamp(1, 10);
+    let w = (hi - lo) / n as f64;
+    let mut bins: Vec<Bin> = (0..n).map(|i| Bin { lo: lo + w * i as f64, hi: lo + w * (i + 1) as f64, count: 0 }).collect();
+    bins[n - 1].hi = hi;
+    for x in v {
+        let i = (((x - lo) / w).floor() as usize).min(n - 1);
+        bins[i].count += 1;
+    }
+    bins
 }
 
 fn exclusion(r: &RunRecord, f: &Filter) -> Option<Exclusion> {
@@ -232,12 +282,63 @@ pub fn summarize(records: &[RunRecord], f: &Filter) -> Summary {
         insufficient: inc.len() < MIN_TREND_N,
         sources: inc.iter().map(|r| (r.run_id.clone(), r.revision_number, r.score_revision)).collect(),
         mixed_timing_methods: if methods.len() > 1 { methods } else { vec![] },
+        final_time_bins: histogram(&fin),
+        hit_factor_bins: histogram(&hf),
+        points: {
+            let mut p: Vec<HistoryPoint> = inc
+                .iter()
+                .map(|r| HistoryPoint {
+                    run_id: r.run_id.clone(),
+                    created_utc_ms: r.created_utc_ms,
+                    final_s: if r.origin_resolved { r.final_ns.map(s) } else { None },
+                    hit_factor: r.hit_factor,
+                    score_complete: r.score_complete,
+                    edited: r.edited,
+                    manual: r.manual,
+                    timing_method: r.timing_method.clone(),
+                })
+                .collect();
+            p.sort_by(|a, b| a.created_utc_ms.cmp(&b.created_utc_ms).then(a.run_id.cmp(&b.run_id)));
+            p
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn histogram_bins_cover_every_value_once() {
+        let v = [1.0, 1.5, 2.0, 2.0, 3.0, 4.0, 4.0, 5.0, 9.0];
+        let b = histogram(&v);
+        assert_eq!(b.len(), 3, "sqrt(9) bins");
+        assert_eq!(b.iter().map(|x| x.count).sum::<u32>(), 9);
+        assert_eq!((b[0].lo, b[2].hi), (1.0, 9.0), "spans min to max, max included");
+        assert_eq!(b[2].count, 1);
+        assert_eq!(histogram(&[2.5, 2.5]), vec![Bin { lo: 2.5, hi: 2.5, count: 2 }]);
+        assert!(histogram(&[]).is_empty());
+        assert_eq!(histogram(&[f64::NAN, 1.0]).iter().map(|x| x.count).sum::<u32>(), 1);
+    }
+
+    #[test]
+    fn points_are_chronological_with_origin_values_only_when_resolved() {
+        let mut late = rec("late", 2.0);
+        late.created_utc_ms = 300;
+        let mut early = rec("early", 3.0);
+        early.created_utc_ms = 50;
+        let mut unresolved = rec("u", 4.0);
+        unresolved.created_utc_ms = 200;
+        unresolved.origin_resolved = false;
+        let mut f = Filter::new("me");
+        f.include_manual = true;
+        f.include_needs_review = true;
+        let s = summarize(&[late, early, unresolved], &f);
+        let ids: Vec<&str> = s.points.iter().map(|p| p.run_id.as_str()).collect();
+        assert_eq!(ids, ["early", "u", "late"]);
+        assert_eq!(s.points[1].final_s, None, "no final time without a resolved start");
+        assert_eq!(s.final_time_bins.iter().map(|b| b.count).sum::<u32>(), 2);
+    }
 
     #[test]
     fn equipment_profile_filter_excludes_other_profiles_with_a_reason() {

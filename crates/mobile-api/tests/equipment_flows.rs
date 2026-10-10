@@ -80,6 +80,11 @@ fn equipment_is_pinned_versioned_filtered_exported_and_backed_up() {
     let a = e.analytics(f).unwrap();
     assert_eq!(a.included, 2);
     assert!(a.excluded.iter().any(|x| x.reason == "other_equipment" && x.count == 1));
+    // Chart data matches the included runs, in time order, with distribution bins.
+    assert_eq!(a.points.len() as u32, a.included);
+    assert!(a.points.windows(2).all(|w| w[0].created_utc_ms <= w[1].created_utc_ms));
+    assert!(a.points.iter().all(|p| p.manual && p.final_s.is_some()));
+    assert_eq!(a.final_time_bins.iter().map(|b| b.count).sum::<u32>(), 2);
 
     // CSV carries the version and escapes formula-like names.
     let csv = e.export_csv().unwrap();
