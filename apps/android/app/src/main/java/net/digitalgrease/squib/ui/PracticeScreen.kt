@@ -109,6 +109,7 @@ fun PracticeScreen(
                 }
             }
         }
+        EquipmentSection(d)
         Text(
             "Drills are data: editing creates a new version, and earlier runs keep the version they used. Scoring here is generic practice, not an official rule set.",
             style = MaterialTheme.typography.bodySmall,

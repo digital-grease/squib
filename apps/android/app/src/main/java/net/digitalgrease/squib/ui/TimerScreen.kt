@@ -70,6 +70,7 @@ fun TimerScreen(
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text("Timer", style = MaterialTheme.typography.headlineMedium)
         CoachBar(d, locked = v.active, afterRun = v.phase in setOf("saved", "cancelled", "failed"))
+        EquipmentBar(d, locked = v.active)
         s.planTitle?.let { Text("Plan: $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("plan_banner")) }
         s.drillTitle?.let { t ->
             Row(verticalAlignment = Alignment.CenterVertically) {

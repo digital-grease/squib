@@ -91,6 +91,17 @@ private fun AnalyticsCard(d: DataController) {
                         label = { Text(dr.input.title) }, modifier = Modifier.padding(end = 6.dp))
                 }
             }
+            val equipment by d.equipment.collectAsState()
+            if (equipment.isNotEmpty()) {
+                FlowRow {
+                    FilterChip(selected = f.equipmentId == null, onClick = { d.setFilter(f.copy(equipmentId = null)) },
+                        label = { Text("Any equipment") }, modifier = Modifier.padding(end = 6.dp))
+                    equipment.forEach { e ->
+                        FilterChip(selected = f.equipmentId == e.id, onClick = { d.setFilter(f.copy(equipmentId = e.id)) },
+                            label = { Text(e.name) }, modifier = Modifier.padding(end = 6.dp).testTag("filter_equipment_${e.name}"))
+                    }
+                }
+            }
             FlowRow {
                 FilterChip(selected = f.includeEdited, onClick = { d.setFilter(f.copy(includeEdited = !f.includeEdited)) }, label = { Text("Include edited") }, modifier = Modifier.padding(end = 6.dp))
                 FilterChip(selected = f.includeManual, onClick = { d.setFilter(f.copy(includeManual = !f.includeManual)) }, label = { Text("Include manual") }, modifier = Modifier.padding(end = 6.dp))
@@ -183,6 +194,7 @@ fun RunCard(r: net.digitalgrease.squib.core.RunListItem, onOpen: (String) -> Uni
                 reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }
                 if (r.qualityWarnings > 0u) Badge("${r.qualityWarnings} quality notes", warning = true)
             }
+            r.equipment?.let { Text("Equipment: $it", style = MaterialTheme.typography.bodySmall) }
             if (r.mode != "par_only") {
                 Text(
                     "Shots: ${r.count ?: 0u}" + (r.expectedCount?.let { " (expected $it)" } ?: "") +

@@ -56,13 +56,16 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     val message: StateFlow<String?> = _message.asStateFlow()
     private val _pendingImport = MutableStateFlow<Pair<File, ImportView>?>(null)
     val pendingImport: StateFlow<Pair<File, ImportView>?> = _pendingImport.asStateFlow()
+    private val _equipment = MutableStateFlow<List<net.digitalgrease.squib.core.EquipmentView>>(emptyList())
+    val equipment: StateFlow<List<net.digitalgrease.squib.core.EquipmentView>> = _equipment.asStateFlow()
+    val equipmentCategories: List<String> = engine.equipmentCategories()
     private val _sessions = MutableStateFlow<List<net.digitalgrease.squib.core.SessionView>>(emptyList())
     val sessions: StateFlow<List<net.digitalgrease.squib.core.SessionView>> = _sessions.asStateFlow()
     private val _plans = MutableStateFlow<List<PlanSummaryView>>(emptyList())
     val plans: StateFlow<List<PlanSummaryView>> = _plans.asStateFlow()
     private val _coach = MutableStateFlow<CoachView?>(null)
     val coach: StateFlow<CoachView?> = _coach.asStateFlow()
-    private val _filter = MutableStateFlow(AnalyticsFilterFfi(null, null, null, true, false, false, false))
+    private val _filter = MutableStateFlow(AnalyticsFilterFfi(null, null, null, true, false, false, false, null))
     val filter: StateFlow<AnalyticsFilterFfi> = _filter.asStateFlow()
 
     val profiles: List<ScoringProfileView> = engine.scoringProfiles()
@@ -91,6 +94,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         _plans.value = runCatching { engine.listPlans() }.getOrDefault(emptyList())
         _coach.value = engine.coach()
         _sessions.value = runCatching { engine.listSessions(200u) }.getOrDefault(emptyList())
+        _equipment.value = runCatching { engine.listEquipment() }.getOrDefault(emptyList())
     }
 
     private fun act(f: () -> Unit) {
@@ -135,6 +139,13 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         planItemId?.let { engine.linkRunToItem(it, id) }
         viewModelScope.launch { onDone(id) }
     }
+
+    // Equipment profiles
+    fun addEquipment(name: String, category: String, notes: String) = act { engine.addEquipment(name, category, notes, System.currentTimeMillis()) }
+    fun editEquipment(id: String, name: String, category: String, notes: String) =
+        act { engine.editEquipment(id, name, category, notes, System.currentTimeMillis()) }
+    fun archiveEquipment(id: String) = act { engine.archiveEquipment(id) }
+    fun setActiveEquipment(id: String?) = act { engine.setActiveEquipment(id) }
 
     // Sessions (range visits)
     suspend fun sessionRuns(id: String): List<net.digitalgrease.squib.core.RunListItem> =

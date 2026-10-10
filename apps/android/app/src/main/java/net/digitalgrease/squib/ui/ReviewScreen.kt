@@ -95,6 +95,7 @@ fun ReviewScreen(
 
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
+                r.equipment?.let { LabeledValue("Equipment", it) }
                 LabeledValue("Shots", r.count.toString() + (r.expectedCount?.let { " (expected $it, hint only)" } ?: ""))
                 LabeledValue("First shot", if (r.originResolved) fmtSec(r.firstNs) else "Unavailable (no start reference)")
                 LabeledValue("Last shot", if (r.originResolved) fmtSec(r.lastNs) else "Unavailable")
