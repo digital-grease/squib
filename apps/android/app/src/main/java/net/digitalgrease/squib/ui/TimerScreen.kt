@@ -114,6 +114,24 @@ fun TimerScreen(
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
+            if (s.mode == Mode.PHONE_LIVE) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("diagnostic_toggle").toggleable(
+                        value = s.diagnostic, role = androidx.compose.ui.semantics.Role.Switch,
+                        onValueChange = { b -> c.updateSettings { it.copy(diagnostic = b) } },
+                    ),
+                ) {
+                    Switch(checked = s.diagnostic, onCheckedChange = null)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("Keep a diagnostic recording of the next run")
+                        Text("Saves this run's microphone audio on this phone (up to 60 s, about 5.8 MB per minute) so you can listen " +
+                            "back and, if you choose, export it to help improve shot detection. It may capture voices nearby. " +
+                            "Turns itself off after one run.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Text("Start delay (max 30 s)", style = MaterialTheme.typography.titleMedium)
             FlowRow {

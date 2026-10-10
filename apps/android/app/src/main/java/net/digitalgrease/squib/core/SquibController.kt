@@ -54,6 +54,8 @@ data class TimerSettings(
     val planTitle: String? = null,
     /** Opt-in video clip (video only, no sound) recorded with each run. */
     val video: Boolean = false,
+    /** Keep a diagnostic audio recording of the next live run only (turns itself off). */
+    val diagnostic: Boolean = false,
 )
 
 enum class DelayKind { INSTANT, FIXED, RANDOM }
@@ -198,7 +200,10 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             drillVersion = s.drillVersion,
             planItemId = s.planItemId,
             video = s.video,
+            diagnosticRoot = if (s.diagnostic && s.mode == Mode.PHONE_LIVE) attachmentRoot.absolutePath else null,
         )
+        // One run only: the switch turns itself off once this run is armed.
+        if (s.diagnostic) _settings.value = s.copy(diagnostic = false)
         armWith(req)
     }
 
@@ -209,7 +214,8 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             _settings.value = s.copy(stringIndex = if (s.stringIndex >= s.drillRepeats) 1 else s.stringIndex + 1)
         }
         val r = lastArm ?: return arm()
-        armWith(r.copy(unitRandom = Random.nextDouble(), nowUtcMs = System.currentTimeMillis()))
+        // Repeat never re-records audio: diagnostic recording is chosen per run.
+        armWith(r.copy(unitRandom = Random.nextDouble(), nowUtcMs = System.currentTimeMillis(), diagnosticRoot = null))
     }
 
     /** Load a drill's recipe into the timer. Each string is a separate run. */

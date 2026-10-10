@@ -66,6 +66,8 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     val profiles: List<ScoringProfileView> = engine.scoringProfiles()
 
     init {
+        // Remove recording files no run owns (for example, the app was closed mid-run).
+        viewModelScope.launch(worker) { runCatching { engine.cleanupDiagnosticPartials(attachmentRoot.absolutePath) } }
         reload()
     }
 
@@ -216,13 +218,46 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     }
 
     // Backup / import / CSV (A17)
-    fun exportBackup(target: Uri, includePhotos: Boolean) = act {
+    fun exportBackup(target: Uri, includePhotos: Boolean, includeAudio: Boolean) = act {
         val tmp = File(app.cacheDir, "squib-backup.zip")
-        val v = engine.exportBackup(tmp.absolutePath, if (includePhotos) attachmentRoot.absolutePath else null, BuildConfig.VERSION_NAME, System.currentTimeMillis())
+        val v = engine.exportBackup(
+            tmp.absolutePath, attachmentRoot.absolutePath, includePhotos, includeAudio, BuildConfig.VERSION_NAME, System.currentTimeMillis(),
+        )
         app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
         tmp.delete()
-        _message.value = "Backup saved: ${v.runs} runs, ${v.attachments} photos and videos, ${v.bytes / 1024u} KB. " +
-            "It is not encrypted" + (if (v.containsLocation) " and contains saved places or location detail." else ".")
+        val extras = listOfNotNull(
+            "saved places or location detail".takeIf { v.containsLocation },
+            "diagnostic audio recordings".takeIf { v.containsAudio },
+        )
+        _message.value = "Backup saved: ${v.runs} runs, ${v.attachments} files, ${v.bytes / 1024u} KB. It is not encrypted" +
+            (if (extras.isEmpty()) "." else " and contains ${extras.joinToString(" and ")}.")
+    }
+
+    // Diagnostic recordings (M5)
+    suspend fun diagnostic(runId: String): net.digitalgrease.squib.core.DiagnosticView? =
+        withContext(worker) { runCatching { engine.runDiagnostic(runId) }.getOrNull() }
+
+    suspend fun diagnosticPreview(runId: String): net.digitalgrease.squib.core.DiagnosticPreview? =
+        withContext(worker) { runCatching { engine.diagnosticPreview(runId) }.getOrNull() }
+
+    fun deleteDiagnostic(runId: String, onDone: () -> Unit) = act {
+        engine.deleteDiagnostic(runId)?.let { deleteAttachmentFile(it) }
+        viewModelScope.launch { onDone() }
+    }
+
+    /** Build the export in private cache, copy it to the file the user picked, remove the cache copy. */
+    fun exportDiagnostic(runId: String, target: Uri, consent: Boolean) = act {
+        val tmp = File(app.cacheDir, "squib-diagnostic.zip")
+        try {
+            val v = engine.exportDiagnostic(
+                runId, attachmentRoot.absolutePath, tmp.absolutePath, consent, BuildConfig.VERSION_NAME, System.currentTimeMillis(),
+            )
+            app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+            _message.value = "Diagnostic export saved (${v.bytes / 1024u} KB, ${v.durationMs / 1000} s of audio, ${v.acceptedEvents} labelled shots). " +
+                "Nothing was sent anywhere; share the file only with people you choose."
+        } finally {
+            tmp.delete()
+        }
     }
 
     fun exportCsv(target: Uri) = act {
@@ -266,7 +301,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     fun deleteAll() = act {
         val d = engine.deleteAllHistory()
         d.attachmentPaths.forEach { deleteAttachmentFile(it) }
-        _message.value = "Deleted ${d.runs} runs and all saved places, drills, and cached weather. Copies you exported or OS backups are not affected."
+        _message.value = "Deleted ${d.runs} runs (with their photos, videos, and recordings) and all saved places, drills, and cached weather. Copies you exported or OS backups are not affected."
     }
 
     /** Delete an app-owned attachment, refusing any path that resolves outside the root. */

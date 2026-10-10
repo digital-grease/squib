@@ -94,8 +94,16 @@ class MainActivity : ComponentActivity() {
     private val data: DataController by viewModels()
     private var photoRun: String? = null
     private var backupWithPhotos = true
+    private var backupWithAudio = false
+    private var diagnosticRun: String? = null
+    private val createDiagnostic = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val run = diagnosticRun
+        diagnosticRun = null
+        // Consent was confirmed in the preview before the picker opened.
+        if (uri != null && run != null) data.exportDiagnostic(run, uri, consent = true)
+    }
     private val createBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let { data.exportBackup(it, backupWithPhotos) }
+        uri?.let { data.exportBackup(it, backupWithPhotos, backupWithAudio) }
     }
     private val createCsv = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri?.let { data.exportCsv(it) }
@@ -207,13 +215,18 @@ class MainActivity : ComponentActivity() {
                                     }, onAddPhoto = {
                                         photoRun = run
                                         pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    }, onShare = { json -> shareText("Squib results", json) })
+                                    }, onShare = { json -> shareText("Squib results", json) }, onExportDiagnostic = {
+                                        diagnosticRun = run
+                                        createDiagnostic.launch("squib-diagnostic.zip")
+                                    })
                                 }
                             }
                             tab == "data" -> DataScreen(
                                 data,
                                 onBack = { tab = "history" },
-                                onExportBackup = { photos -> backupWithPhotos = photos; createBackup.launch("squib-backup.zip") },
+                                onExportBackup = { photos, audio ->
+                                    backupWithPhotos = photos; backupWithAudio = audio; createBackup.launch("squib-backup.zip")
+                                },
                                 onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
                                 onExportCsv = { createCsv.launch("squib-runs.csv") },
                                 onReportProblem = ::reportProblem,

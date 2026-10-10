@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,7 +38,7 @@ import net.digitalgrease.squib.data.DataController
 fun DataScreen(
     d: DataController,
     onBack: () -> Unit,
-    onExportBackup: (includePhotos: Boolean) -> Unit,
+    onExportBackup: (includePhotos: Boolean, includeAudio: Boolean) -> Unit,
     onImport: () -> Unit,
     onExportCsv: () -> Unit,
     onReportProblem: () -> Unit,
@@ -45,6 +46,7 @@ fun DataScreen(
     val rounds by d.rounds.collectAsState()
     val pending by d.pendingImport.collectAsState()
     var photos by remember { mutableStateOf(true) }
+    var audio by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(0) }
     var cost by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("USD") }
@@ -63,7 +65,11 @@ fun DataScreen(
                     Text("Include photos and videos", modifier = Modifier.weight(1f))
                     Switch(checked = photos, onCheckedChange = { photos = it })
                 }
-                Button(onClick = { onExportBackup(photos) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save backup") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Include diagnostic recordings (audio)", modifier = Modifier.weight(1f))
+                    Switch(checked = audio, onCheckedChange = { audio = it }, modifier = Modifier.testTag("backup_audio"))
+                }
+                Button(onClick = { onExportBackup(photos, audio) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save backup") }
                 OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(top = 6.dp)) { Text("Restore from backup") }
             }
         }

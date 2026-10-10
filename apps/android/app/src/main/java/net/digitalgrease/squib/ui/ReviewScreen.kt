@@ -59,6 +59,7 @@ fun ReviewScreen(
     onRepeat: () -> Unit,
     onAddPhoto: () -> Unit,
     onShare: (String) -> Unit,
+    onExportDiagnostic: () -> Unit = {},
 ) {
     var review by remember { mutableStateOf<ReviewView?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -169,7 +170,10 @@ fun ReviewScreen(
         }
 
         // Markers follow the latest revision, so reload after each review edit.
-        androidx.compose.runtime.key(r.revisionNumber) { VideoSection(d, runId) }
+        androidx.compose.runtime.key(r.revisionNumber) {
+            VideoSection(d, runId)
+            DiagnosticSection(d, runId, onExportDiagnostic)
+        }
         ScoreCard(d, runId)
         RoundsCard(d, runId, r.mode)
         PhotosAndShare(d, runId, onAddPhoto, onShare, onDeleted = onBack)

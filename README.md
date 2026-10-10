@@ -16,6 +16,7 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 - **Day plans.** Plan a practice or match day: drills to run (with how many strings), stage notes such as start position and round count, and times like the shooters meeting. The plan shows what is next and counts only runs you actually finished; skipping an item never invents a result. Each plan has a checklist copied from your own template, and a countdown helps with walkthroughs.
 - **Coaching.** The timer always shows who is shooting. A coach can switch shooters between runs or set a rotation, and after each run Squib offers the next shooter. History shows who fired each run.
 - **Video clips (experimental).** Turn on video and the back camera records a short clip with each run (video only, no sound, up to 2 minutes). In Review the clip plays with markers for the start, par cues, and shots, and you can jump to each one. Squib says how it lined the video up with the timer and how precise that is (about one video frame at best); if it cannot line them up reliably, the video plays without markers instead of guessing.
+- **Diagnostic recordings (research, opt-in).** Switch on a recording for one live run to listen back with shot markers, and optionally export it with your review to help improve shot detection. Off by default, never uploaded.
 - **Rounds and photos.** Confirm how many rounds you fired (with an optional cost per round), and attach target photos.
 - **Your data stays yours.** Save a full private backup and restore it on any phone, export a spreadsheet (CSV), or share a single result without location details. You can delete one run or everything.
 - **Setup help.** A sensitivity check measures how loud your surroundings are, and a cue test confirms the microphone can hear the start beep before you rely on it.
@@ -33,8 +34,9 @@ Squib is an early prototype and is not yet available in any app store.
 ## Privacy
 
 - No account, no ads, and no tracking.
-- The only internet use is weather lookup, which is off until you turn it on. It sends your place, rounded to about 1 km, to the US National Weather Service, or for places it does not cover (or if you choose airport reports everywhere), to the US NOAA Aviation Weather Center. Nothing else is ever sent, and audio never leaves the phone.
-- Squib never records or saves audio. Video clips, when you turn them on, have no sound track. Sound is analyzed in memory and discarded; only shot times and a coarse loudness outline are kept.
+- The only internet use is weather lookup, which is off until you turn it on. It sends your place, rounded to about 1 km, to the US National Weather Service, or for places it does not cover (or if you choose airport reports everywhere), to the US NOAA Aviation Weather Center. Nothing else is ever sent, and Squib never sends audio anywhere.
+- By default Squib never saves audio. Sound is analyzed in memory and discarded; only shot times and a coarse loudness outline are kept. Video clips, when you turn them on, have no sound track.
+- A diagnostic recording keeps one run's microphone audio only when you switch it on for that run (it turns itself off afterwards, up to 60 s). It stays on the phone until you delete it, is left out of backups unless you choose to include it, and is never in shared results or problem reports. Exporting it for research is a separate step: you see exactly what is included, confirm a research-only statement, and choose where the file goes. Squib does not upload it.
 - The microphone is requested only when you choose shot timing, sensitivity setup, or the cue test. The camera is requested only when you arm a run with video turned on. The par timer never asks for it. Location is requested only when you tap "Use my location"; typing coordinates or picking a saved place works without it.
 - By default, runs keep weather values but not your coordinates, station names, or elevation. You can opt in to keeping full detail.
 - History stays on your phone and is not included in Android's automatic backups. To move it, save a private backup file and restore it on the new phone. Backup files are not encrypted, so store them somewhere you trust.
@@ -59,7 +61,7 @@ A shared Rust core holds all timing logic, shot detection, the run state machine
 
 Range conditions are resolved field by field in Rust: a manual value wins, then a fresh phone sensor, then the best-ranked fresh nearby station, otherwise Unavailable. Pressure kinds are separate fields, so a station's altimeter setting or sea-level pressure can never stand in for the actual pressure where you are (NWS observations do not include station pressure). Airport METAR reports are parsed from their raw text rather than the API's rounded convenience fields, keeping the units each report states; humidity from METAR is derived from temperature and dew point and labelled as derived, and a QFE remark (actual pressure at the airport) stays a remote-station value. Ages always come from observation time, not fetch time. The Android app performs the HTTP requests the core plans and validates; snapshots saved with runs are redacted unless precise retention is enabled.
 
-Timing comes from audio sample positions, not from when the app happens to receive audio. When a run's start beep and shots are captured in the same recording, the times between them are exact sample counts. Raw audio exists only in short-lived memory buffers.
+Timing comes from audio sample positions, not from when the app happens to receive audio. When a run's start beep and shots are captured in the same recording, the times between them are exact sample counts. Raw audio exists only in short-lived memory buffers unless the user turns on a diagnostic recording for a run: then the DSP worker offers each processed block to a writer thread through preallocated buffers (it never waits; anything the writer cannot keep becomes silence listed as a gap), so the WAV is sample-for-sample what the detector saw. `squib-replay diag` checks an export reproduces the phone's detections exactly and scores detector variants against the user's own review.
 
 Video clips (experimental) are recorded with Camera2 into a surface encoder with no audio track, so the timing microphone is never shared. The app keeps each clip's first-frame camera timestamp and one set of clock readings taken next to a camera frame; the core decides from those which phone clock the camera follows and labels the result measured, assumed, or unavailable. Markers are drawn from the run's latest review revision, never from the video. Because a camera session can change how the microphone is processed, live timing with video counts as a separate audio route for sensitivity setups.
 
@@ -73,7 +75,7 @@ crates/training/          drill recipes, generic practice scoring, analytics, ma
 crates/storage/           SQLite repository, migrations, recovery, day plans and checklists
 crates/archive/           private backup/restore, CSV export, redacted result sharing
 crates/mobile-api/        UniFFI engine (control plane), JNI PCM bridge (data plane), DSP and store actors
-tools/replay/             squib-replay: fixtures, replay, corpus evaluation, benchmark, stress study
+tools/replay/             squib-replay: fixtures, replay, corpus evaluation, benchmark, stress study, diagnostic exports
 tools/uniffi-bindgen/     pinned binding generator
 apps/android/             Kotlin + Jetpack Compose app
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
@@ -102,6 +104,7 @@ cargo build --release -p squib-replay
     --labels fixtures/synthetic/basic_5_shots_48k.labels.json --random-chunks 7
 ./target/release/squib-replay bench --seconds 120
 ./target/release/squib-replay stress --markdown             # synthetic detector stress study (research)
+./target/release/squib-replay diag squib-diagnostic.zip     # replay and score an opt-in diagnostic export
 
 # Android (builds the Rust core with cargo-ndk and generates Kotlin bindings first)
 cd apps/android
