@@ -148,6 +148,12 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     fun setActiveEquipment(id: String?) = act { engine.setActiveEquipment(id) }
 
     // Sessions (range visits)
+    suspend fun sessionSets(id: String): List<net.digitalgrease.squib.core.StringSetView> =
+        withContext(worker) { runCatching { engine.sessionSets(id) }.getOrDefault(emptyList()) }
+
+    suspend fun planItemSet(itemId: String): net.digitalgrease.squib.core.StringSetView? =
+        withContext(worker) { runCatching { engine.planItemSet(itemId) }.getOrNull() }
+
     suspend fun sessionRuns(id: String): List<net.digitalgrease.squib.core.RunListItem> =
         withContext(worker) { runCatching { engine.sessionRuns(id) }.getOrDefault(emptyList()) }
 

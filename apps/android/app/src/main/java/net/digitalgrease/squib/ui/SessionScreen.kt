@@ -41,7 +41,11 @@ fun SessionScreen(d: DataController, sessionId: String, runActive: Boolean, onBa
     val s = sessions.firstOrNull { it.id == sessionId }
     var runs by remember { mutableStateOf<List<RunListItem>>(emptyList()) }
     var confirmDelete by remember { mutableStateOf(false) }
-    LaunchedEffect(sessionId, s?.runCount) { runs = d.sessionRuns(sessionId) }
+    var sets by remember { mutableStateOf<List<net.digitalgrease.squib.core.StringSetView>>(emptyList()) }
+    LaunchedEffect(sessionId, s?.runCount) {
+        runs = d.sessionRuns(sessionId)
+        sets = d.sessionSets(sessionId)
+    }
     if (s == null) {
         Column(Modifier.padding(16.dp)) {
             TextButton(onClick = onBack) { Text("‹ History") }
@@ -107,6 +111,10 @@ fun SessionScreen(d: DataController, sessionId: String, runActive: Boolean, onBa
                 }
                 TextButton(onClick = { confirmDelete = true }, enabled = !runActive,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("session_delete")) { Text("Delete visit") }
+            }
+            if (sets.isNotEmpty()) {
+                Text("Set results", style = MaterialTheme.typography.titleLarge)
+                sets.forEach { SetCard(it) }
             }
             Text("Runs", style = MaterialTheme.typography.titleLarge)
         }

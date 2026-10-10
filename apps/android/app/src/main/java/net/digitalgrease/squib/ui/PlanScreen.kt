@@ -201,7 +201,12 @@ private fun PlanItemCard(d: DataController, i: PlanItemView, first: Boolean, las
                 if (i.skipped) Badge("Skipped", warning = true)
                 if (i.done) Badge("Done")
             }
-            if (i.kind == "drill") Text(progressText(i), modifier = Modifier.testTag("progress_${i.title}"))
+            if (i.kind == "drill") {
+                Text(progressText(i), modifier = Modifier.testTag("progress_${i.title}"))
+                var set by remember { mutableStateOf<net.digitalgrease.squib.core.StringSetView?>(null) }
+                LaunchedEffect(i.id, i.completed, i.aborted) { set = d.planItemSet(i.id) }
+                set?.let { SetCard(it) }
+            }
             if (i.kind == "stage") NotesField(i.notes, "notes_${i.title}") { n -> d.setItemNotes(i.id, n, reload) }
             else if (i.notes.isNotBlank()) Text(i.notes, style = MaterialTheme.typography.bodyMedium)
             FlowRow {

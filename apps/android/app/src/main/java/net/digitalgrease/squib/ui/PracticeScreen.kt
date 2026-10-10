@@ -93,12 +93,16 @@ fun PracticeScreen(
                     )
                     if (dr.input.parsMs.isNotEmpty()) parts += "pars " + dr.input.parsMs.joinToString { String.format(Locale.US, "%.2f", it.toInt() / 1000.0) } + " s"
                     if (dr.input.repeats > 1u) parts += "${dr.input.repeats} strings, ${dr.input.restS} s rest"
+                    dr.input.setResult?.let { c ->
+                        val what = if (c == "sum") "total" else "average"
+                        parts += dr.input.keepBest?.takeIf { it < dr.input.repeats }?.let { "set: $what of best $it" } ?: "set: $what"
+                    }
                     parts += dr.scoringTitle
                     Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
                     Text("Version ${dr.version}", style = MaterialTheme.typography.bodySmall)
                     FlowRow {
                         if (dr.input.manual) {
-                            Button(onClick = { manualFor = dr; manualOpen = true }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) { Text("Enter result") }
+                            Button(onClick = { manualFor = dr; manualOpen = true }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("enter_result_${dr.input.title}")) { Text("Enter result") }
                         } else {
                             Button(onClick = { onStartDrill(dr) }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("start_${dr.drillId}")) { Text("Start") }
                         }
@@ -131,11 +135,13 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
     var rest by remember { mutableStateOf((e?.restS ?: 0u).toString()) }
     var profile by remember { mutableStateOf(e?.scoringProfileId ?: "generic-time") }
     var tags by remember { mutableStateOf(e?.equipmentTags?.joinToString(", ") ?: "") }
+    var setResult by remember { mutableStateOf(e?.setResult) }
+    var keepBest by remember { mutableStateOf(e?.keepBest?.toString() ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         TextButton(onClick = onDone) { Text("‹ Cancel") }
         Text(if (existing == null) "New drill" else "Edit drill (creates version ${existing.version + 1u})", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(title, { title = it.take(80) }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(title, { title = it.take(80) }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("drill_title"))
         OutlinedTextField(desc, { desc = it.take(1000) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
         FlowRow {
             listOf("par" to "Par-only", "live" to "Live shots", "manual" to "Manual result").forEach { (k, l) ->
@@ -151,9 +157,11 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
             }
             OutlinedTextField(pars, { pars = it }, label = { Text("Par times (s), comma separated") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row {
-                OutlinedTextField(repeats, { repeats = it.filter(Char::isDigit).take(2) }, label = { Text("Strings") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        }
+        Row {
+            OutlinedTextField(repeats, { repeats = it.filter(Char::isDigit).take(2) }, label = { Text("Strings") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f).testTag("drill_strings"))
+            if (mode != "manual") {
                 Spacer(Modifier.padding(4.dp))
                 OutlinedTextField(rest, { rest = it.filter(Char::isDigit).take(3) }, label = { Text("Rest between (s)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
@@ -162,7 +170,30 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
         Text("Scoring (generic practice)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         FlowRow {
             d.profiles.forEach { p ->
-                FilterChip(selected = profile == p.id, onClick = { profile = p.id }, label = { Text(p.title) }, modifier = Modifier.padding(end = 8.dp))
+                FilterChip(selected = profile == p.id, onClick = {
+                    profile = p.id
+                    // Hit factors cannot be totalled.
+                    if (p.id == "generic-points-hf" && setResult == "sum") setResult = "mean"
+                }, label = { Text(p.title) }, modifier = Modifier.padding(end = 8.dp))
+            }
+        }
+        val nStrings = repeats.toIntOrNull() ?: 1
+        if (nStrings >= 2) {
+            Text("Set result", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+            val hitFactor = profile == "generic-points-hf"
+            FlowRow {
+                listOf(null to "None", "sum" to "Total", "mean" to "Average").forEach { (k, l) ->
+                    val allowed = !(hitFactor && k == "sum")
+                    FilterChip(selected = setResult == k, enabled = allowed, onClick = { setResult = k }, label = { Text(l) },
+                        modifier = Modifier.padding(end = 8.dp).testTag("set_${k ?: "none"}"))
+                }
+            }
+            if (setResult != null) {
+                OutlinedTextField(keepBest, { keepBest = it.filter(Char::isDigit).take(2) }, singleLine = true,
+                    label = { Text("Count only the best (blank = all $nStrings)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().testTag("set_keep"))
+                Text("Only completed, fully scored strings count. Fewer than $nStrings makes the set incomplete, never a partial total." +
+                    if (hitFactor) " Hit factors are averaged, not totalled." else "", style = MaterialTheme.typography.bodySmall)
             }
         }
         OutlinedTextField(tags, { tags = it.take(330) }, label = { Text("Equipment tags (optional, comma separated)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -183,10 +214,12 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
                 expectedCount = null, parsMs = if (mode == "manual") emptyList() else parsMs,
                 repeats = (repeats.toIntOrNull() ?: 1).coerceAtLeast(0).toUInt(), restS = (rest.toIntOrNull() ?: 0).toUInt(),
                 scoringProfileId = profile, notes = "", equipmentTags = tags.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+                setResult = setResult.takeIf { (repeats.toIntOrNull() ?: 1) >= 2 },
+                keepBest = keepBest.toIntOrNull()?.toUInt().takeIf { setResult != null && (repeats.toIntOrNull() ?: 1) >= 2 },
             )
             if (existing == null) d.createDrill(input) else d.editDrill(existing.drillId, input)
             onDone()
-        }, modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 8.dp)) { Text("Save") }
+        }, modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 8.dp).testTag("drill_save")) { Text("Save") }
     }
 }
 
