@@ -40,6 +40,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import net.digitalgrease.squib.ui.HistoryScreen
 import net.digitalgrease.squib.ui.ReviewScreen
+import net.digitalgrease.squib.ui.SessionScreen
 import net.digitalgrease.squib.ui.SetupScreen
 import net.digitalgrease.squib.ui.SquibTheme
 import net.digitalgrease.squib.ui.TimerScreen
@@ -169,6 +170,7 @@ class MainActivity : ComponentActivity() {
                 var tab by rememberSaveable { mutableStateOf("timer") }
                 var reviewRun by rememberSaveable { mutableStateOf<String?>(null) }
                 var openPlan by rememberSaveable { mutableStateOf<String?>(null) }
+                var openSession by rememberSaveable { mutableStateOf<String?>(null) }
                 val msg by controller.message.collectAsState()
                 val condMsg by conditions.message.collectAsState()
                 val dataMsg by data.message.collectAsState()
@@ -248,7 +250,13 @@ class MainActivity : ComponentActivity() {
                             )
                             tab == "checklist" -> ChecklistTemplateScreen(data, onBack = { tab = "practice" })
                             tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
-                            tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" })
+                            tab == "history" && openSession != null -> {
+                                val v by controller.view.collectAsState()
+                                SessionScreen(data, openSession!!, runActive = v.active, onBack = { openSession = null; data.reload() },
+                                    onOpenRun = { reviewRun = it })
+                            }
+                            tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" },
+                                onOpenSession = { openSession = it })
                             tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
                             else -> TimerScreen(controller, data, ::withMic, ::withCamera, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }

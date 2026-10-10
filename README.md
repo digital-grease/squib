@@ -1,5 +1,10 @@
 # Squib
 
+[![CI](https://img.shields.io/github/actions/workflow/status/digital-grease/squib/ci.yml?branch=main&logo=github&label=CI)](https://github.com/digital-grease/squib/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/digital-grease/squib/blob/main/LICENSE)
+[![Android API](https://img.shields.io/badge/API-26%2B-brightgreen?logo=android)](https://developer.android.com/about/versions/oreo)
+[![GitHub Issues](https://img.shields.io/github/issues/digital-grease/squib)](https://github.com/digital-grease/squib/issues)
+
 <a href="https://www.buymeacoffee.com/digitalgrease" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 Squib turns an Android phone into a practice timer for shooting sports. It is built to be useful with nothing but the phone you already own: no account, no internet connection, and no extra equipment.
@@ -14,7 +19,7 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 - **Drills.** Save your own drills (start delay, par times, strings and rest, scoring) or start from simple examples. Editing a drill creates a new version, so earlier results stay comparable. Drills can be shared as small files.
 - **Scoring.** Generic practice scoring: time only, points and hit factor, or time plus penalties. These are practice tools, not official rule sets. A missing score stays "incomplete" instead of counting as zero.
 - **Results from another timer.** Type in the times from a club or borrowed timer; they are kept at that timer's precision and marked as manual.
-- **History and progress.** Every run is saved on the phone, including cancelled or interrupted ones. Summaries show medians and spread, always with how many runs were included and why others were left out; fewer than five comparable runs are labeled too few for a trend. Separate shooter profiles let several people share one phone.
+- **History and progress.** Every run is saved on the phone, including cancelled or interrupted ones, grouped into visits: a visit ends when you end it or after four quiet hours, and keeps its own notes, round total, the price per round you had then, and the conditions of its latest run. You can delete one visit without touching the rest. Summaries show medians and spread, always with how many runs were included and why others were left out; fewer than five comparable runs are labeled too few for a trend. Separate shooter profiles let several people share one phone.
 - **Day plans.** Plan a practice or match day: drills to run (with how many strings), stage notes such as start position and round count, and times like the shooters meeting. The plan shows what is next and counts only runs you actually finished; skipping an item never invents a result. Each plan has a checklist copied from your own template, and a countdown helps with walkthroughs.
 - **Coaching.** The timer always shows who is shooting. A coach can switch shooters between runs or set a rotation, and after each run Squib offers the next shooter. History shows who fired each run.
 - **Video clips (experimental).** Turn on video and the back camera records a short clip with each run (video only, no sound, up to 2 minutes). In Review the clip plays with markers for the start, par cues, and shots, and you can jump to each one. Squib says how it lined the video up with the timer and how precise that is (about one video frame at best); if it cannot line them up reliably, the video plays without markers instead of guessing.

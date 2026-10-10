@@ -118,8 +118,9 @@ private fun AnalyticsCard(d: DataController) {
 }
 
 @Composable
-fun HistoryScreen(c: SquibController, d: DataController, onOpen: (String) -> Unit, onData: () -> Unit) {
+fun HistoryScreen(c: SquibController, d: DataController, onOpen: (String) -> Unit, onData: () -> Unit, onOpenSession: (String) -> Unit) {
     val runs by c.history.collectAsState()
+    val sessions by d.sessions.collectAsState()
     val view by c.view.collectAsState()
     LaunchedEffect(Unit) {
         c.refreshHistory()
@@ -142,37 +143,74 @@ fun HistoryScreen(c: SquibController, d: DataController, onOpen: (String) -> Uni
                 )
             }
             if (runs.isEmpty()) Text("No runs yet.")
+            else Text("Visits", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
         }
-        items(runs, key = { it.runId }) { r ->
-            Card(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp).heightIn(min = 72.dp)
-                    .clickable(role = Role.Button, onClickLabel = "Open review") { onOpen(r.runId) }
-                    .testTag("run_${r.runId}"),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(fmtDate(r.createdUtcMs) + " · " + r.shooterName, fontWeight = FontWeight.Bold)
-                    FlowRow {
-                        Badge(if (r.mode == "par_only") "Par-only" else "Live (experimental)")
-                        Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
-                        if (r.persist != "saved") Badge("Not saved", warning = true)
-                        reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }
-                        if (r.qualityWarnings > 0u) Badge("${r.qualityWarnings} quality notes", warning = true)
-                    }
-                    if (r.mode != "par_only") {
-                        Text(
-                            "Shots: ${r.count ?: 0u}" + (r.expectedCount?.let { " (expected $it)" } ?: "") +
-                                "   First: ${fmtSec(r.firstNs)}   Last: ${fmtSec(r.lastNs)}",
-                        )
-                    }
-                }
+        if (sessions.isEmpty() && runs.isNotEmpty()) {
+            items(runs, key = { it.runId }) { r -> RunCard(r, onOpen) }
+        }
+        sessions.firstOrNull()?.let { latest ->
+            item(key = "latest_" + latest.id) { SessionCard(latest) { onOpenSession(latest.id) } }
+            // The latest visit's runs are listed directly: usually what was just shot.
+            items(runs.filter { it.sessionId == latest.id }, key = { it.runId }) { r -> RunCard(r, onOpen) }
+            if (sessions.size > 1) {
+                item { Text("Earlier visits", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
             }
         }
+        items(sessions.drop(1), key = { it.id }) { sess -> SessionCard(sess) { onOpenSession(sess.id) } }
         item {
             Text(
                 "History is stored only on this device. Use Data and backup to save a copy.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(vertical = 16.dp),
             )
+        }
+    }
+}
+
+@Composable
+fun RunCard(r: net.digitalgrease.squib.core.RunListItem, onOpen: (String) -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).heightIn(min = 72.dp)
+            .clickable(role = Role.Button, onClickLabel = "Open review") { onOpen(r.runId) }
+            .testTag("run_${r.runId}"),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(fmtDate(r.createdUtcMs) + " · " + r.shooterName, fontWeight = FontWeight.Bold)
+            FlowRow {
+                Badge(if (r.mode == "par_only") "Par-only" else if (r.mode == "manual_entry") "Manual" else "Live (experimental)")
+                Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
+                if (r.persist != "saved") Badge("Not saved", warning = true)
+                reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }
+                if (r.qualityWarnings > 0u) Badge("${r.qualityWarnings} quality notes", warning = true)
+            }
+            if (r.mode != "par_only") {
+                Text(
+                    "Shots: ${r.count ?: 0u}" + (r.expectedCount?.let { " (expected $it)" } ?: "") +
+                        "   First: ${fmtSec(r.firstNs)}   Last: ${fmtSec(r.lastNs)}",
+                )
+            }
+        }
+    }
+}
+
+fun money(minor: Long, currency: String?): String = String.format(Locale.US, "%.2f %s", minor / 100.0, currency ?: "")
+
+@Composable
+private fun SessionCard(s: net.digitalgrease.squib.core.SessionView, onOpen: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).heightIn(min = 72.dp)
+            .clickable(role = Role.Button, onClickLabel = "Open visit") { onOpen() }
+            .testTag("session_${s.id}"),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(fmtDate(s.startedUtcMs) + " · " + s.shooterName, fontWeight = FontWeight.Bold)
+            FlowRow {
+                if (s.active) Badge("In progress")
+                Badge("${s.runCount} run(s), ${s.completeRuns} complete")
+                if (s.confirmedRounds > 0u) Badge("${s.confirmedRounds} rounds" + (s.costMinor?.let { " · " + money(it, s.currency) } ?: ""))
+                if (s.unconfirmedRuns > 0u) Badge("${s.unconfirmedRuns} round count(s) to confirm", warning = true)
+            }
+            if (s.notes.isNotBlank()) Text(s.notes.lines().first().take(120), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

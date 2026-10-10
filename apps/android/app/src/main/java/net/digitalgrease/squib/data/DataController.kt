@@ -56,6 +56,8 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     val message: StateFlow<String?> = _message.asStateFlow()
     private val _pendingImport = MutableStateFlow<Pair<File, ImportView>?>(null)
     val pendingImport: StateFlow<Pair<File, ImportView>?> = _pendingImport.asStateFlow()
+    private val _sessions = MutableStateFlow<List<net.digitalgrease.squib.core.SessionView>>(emptyList())
+    val sessions: StateFlow<List<net.digitalgrease.squib.core.SessionView>> = _sessions.asStateFlow()
     private val _plans = MutableStateFlow<List<PlanSummaryView>>(emptyList())
     val plans: StateFlow<List<PlanSummaryView>> = _plans.asStateFlow()
     private val _coach = MutableStateFlow<CoachView?>(null)
@@ -88,6 +90,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         _analytics.value = runCatching { engine.analytics(_filter.value) }.getOrNull()
         _plans.value = runCatching { engine.listPlans() }.getOrDefault(emptyList())
         _coach.value = engine.coach()
+        _sessions.value = runCatching { engine.listSessions(200u) }.getOrDefault(emptyList())
     }
 
     private fun act(f: () -> Unit) {
@@ -131,6 +134,20 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         )
         planItemId?.let { engine.linkRunToItem(it, id) }
         viewModelScope.launch { onDone(id) }
+    }
+
+    // Sessions (range visits)
+    suspend fun sessionRuns(id: String): List<net.digitalgrease.squib.core.RunListItem> =
+        withContext(worker) { runCatching { engine.sessionRuns(id) }.getOrDefault(emptyList()) }
+
+    fun setSessionNotes(id: String, notes: String) = act { engine.setSessionNotes(id, notes) }
+    fun setSessionCost(id: String, minor: Long?, currency: String?) = act { engine.setSessionCost(id, minor, currency) }
+    fun endSession(id: String) = act { engine.endSession(id, System.currentTimeMillis()) }
+    fun deleteSession(id: String, onDone: () -> Unit) = act {
+        val d = engine.deleteSession(id)
+        d.attachmentPaths.forEach { deleteAttachmentFile(it) }
+        _message.value = "Deleted this visit and its ${d.runs} run(s). Copies you exported or OS backups are not affected."
+        viewModelScope.launch { onDone() }
     }
 
     // Coach rotation (M4)
