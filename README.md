@@ -1,5 +1,7 @@
 # Squib
 
+<a href="https://www.buymeacoffee.com/digitalgrease" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-red.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
 Squib turns an Android phone into a practice timer for shooting sports. It is built to be useful with nothing but the phone you already own: no account, no internet connection, and no extra equipment.
 
 **No equipment required. Better equipment supported.**
