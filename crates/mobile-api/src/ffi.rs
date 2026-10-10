@@ -237,6 +237,8 @@ pub struct QualityView {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ReviewView {
     pub run_id: String,
+    /// "Name (category)" of the equipment version the run used, if any.
+    pub equipment: Option<String>,
     pub created_utc_ms: i64,
     pub mode: String,
     pub outcome: Option<String>,
@@ -298,6 +300,8 @@ pub struct RunListItem {
     /// Display name of the shooter at the time of listing (renames apply).
     pub shooter_name: String,
     pub session_id: String,
+    /// "Name (category)" of the equipment version the run used, if any.
+    pub equipment: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

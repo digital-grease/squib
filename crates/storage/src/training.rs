@@ -419,7 +419,7 @@ impl Repository {
         })
     }
 
-    /// Delete every run, session, day plan, snapshot, drill, place, override, and cached document.
+    /// Delete every run, session, day plan, snapshot, drill, equipment item, place, override, and cached document.
     pub fn delete_all_history(&mut self) -> Result<DeletionReport> {
         let ids: Vec<String> = {
             let mut st = self.conn.prepare("SELECT id FROM run")?;
@@ -436,6 +436,8 @@ impl Repository {
                 "environment_snapshot",
                 "drill_version",
                 "drill",
+                "equipment_version",
+                "equipment",
                 "saved_place",
                 "env_override",
                 "provider_cache",
@@ -444,7 +446,7 @@ impl Repository {
                 tx.execute(&format!("DELETE FROM {t}"), [])?;
             }
             // Starter drills are seeded again on next launch.
-            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'starter_drills_seeded')", [])?;
+            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'starter_drills_seeded', 'active_equipment')", [])?;
             Ok(())
         })
     }
@@ -481,7 +483,9 @@ impl Repository {
             let sr = profile.as_ref().map(|p| compute(score.as_ref().map(|s| &s.entry), p, elapsed));
             let score_required =
                 profile.as_ref().is_some_and(|p| !matches!(p.kind, squib_training::scoring::ProfileKind::TimeOnly));
+            let equipment = config.equipment_version_id.as_deref().and_then(crate::parse_equipment_ref);
             out.push(RunRecord {
+                equipment_id: equipment.map(|e| e.0),
                 run_id: id,
                 created_utc_ms: created,
                 shooter_id: shooter,

@@ -151,12 +151,12 @@ impl Repository {
         Ok(DEFAULT_SHOOTER_ID.to_string())
     }
 
-    /// Return the active session for the shooter, creating one with `new_id` if none.
     /// Durably record the run intent and immutable configuration before arming.
     pub fn insert_run_intent(&mut self, intent: &RunIntent) -> Result<()> {
         intent.config.validate().map_err(|e| StorageError::Conflict(format!("invalid configuration: {e}")))?;
         let tx = self.conn.transaction()?;
         let drill = Self::check_drill_ref(&tx, &intent.config)?;
+        let equipment = Self::check_equipment_ref(&tx, &intent.config)?;
         tx.execute(
             "INSERT INTO run(id, session_id, shooter_id, created_utc_ms, tz_offset_min, source_mode, config_json, config_hash,
                 calibration_profile_id, app_build, detector_version, domain_schema_version, persist_state,
@@ -180,6 +180,9 @@ impl Repository {
         )?;
         if let Some((id, v)) = drill {
             tx.execute("UPDATE run SET drill_id = ?2, drill_version = ?3 WHERE id = ?1", params![intent.run_id, id, v])?;
+        }
+        if let Some((id, v)) = equipment {
+            tx.execute("UPDATE run SET equipment_id = ?2, equipment_version = ?3 WHERE id = ?1", params![intent.run_id, id, v])?;
         }
         tx.commit()?;
         Ok(())
@@ -509,6 +512,7 @@ impl Repository {
                 quality_warnings: warnings,
                 edited: latest.as_ref().is_some_and(|r| r.is_edited()),
                 shooter_id: config.shooter_id.clone(),
+                equipment_ref: config.equipment_version_id.clone(),
                 row,
             });
         }

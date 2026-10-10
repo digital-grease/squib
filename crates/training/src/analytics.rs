@@ -25,6 +25,8 @@ pub struct RunRecord {
     pub mode: String,
     pub scoring_profile: Option<(String, u32)>,
     pub equipment_tags: Vec<String>,
+    /// Equipment profile the run used (any version), when one was selected.
+    pub equipment_id: Option<String>,
     /// `acoustic_cue`, `scheduled_render`, `manual`, ...
     pub timing_method: String,
     pub outcome: Option<Outcome>,
@@ -54,6 +56,8 @@ pub struct Filter {
     pub drill_version: Option<u32>,
     pub mode: Option<String>,
     pub equipment_tag: Option<String>,
+    /// Compare runs made with this equipment profile (all of its versions).
+    pub equipment_id: Option<String>,
     pub from_utc_ms: Option<i64>,
     pub to_utc_ms: Option<i64>,
     pub include_edited: bool,
@@ -71,6 +75,7 @@ impl Filter {
             drill_version: None,
             mode: None,
             equipment_tag: None,
+            equipment_id: None,
             from_utc_ms: None,
             to_utc_ms: None,
             include_edited: true,
@@ -166,6 +171,9 @@ fn exclusion(r: &RunRecord, f: &Filter) -> Option<Exclusion> {
     if f.equipment_tag.as_ref().is_some_and(|t| !r.equipment_tags.contains(t)) {
         return Some(Exclusion::OtherEquipment);
     }
+    if f.equipment_id.is_some() && r.equipment_id != f.equipment_id {
+        return Some(Exclusion::OtherEquipment);
+    }
     if f.from_utc_ms.is_some_and(|t| r.created_utc_ms < t) || f.to_utc_ms.is_some_and(|t| r.created_utc_ms > t) {
         return Some(Exclusion::OutsideDates);
     }
@@ -231,6 +239,19 @@ pub fn summarize(records: &[RunRecord], f: &Filter) -> Summary {
 mod tests {
     use super::*;
 
+    #[test]
+    fn equipment_profile_filter_excludes_other_profiles_with_a_reason() {
+        let mut other = rec("b", 2.0);
+        other.equipment_id = Some("e2".into());
+        let mut none = rec("c", 2.0);
+        none.equipment_id = None;
+        let mut f = Filter::new("me");
+        f.equipment_id = Some("e1".into());
+        assert_eq!(exclusion(&rec("a", 2.0), &f), None);
+        assert_eq!(exclusion(&other, &f), Some(Exclusion::OtherEquipment));
+        assert_eq!(exclusion(&none, &f), Some(Exclusion::OtherEquipment));
+    }
+
     fn rec(id: &str, final_s: f64) -> RunRecord {
         RunRecord {
             run_id: id.into(),
@@ -241,6 +262,7 @@ mod tests {
             mode: "phone_live".into(),
             scoring_profile: None,
             equipment_tags: vec!["pistol".into()],
+            equipment_id: Some("e1".into()),
             timing_method: "acoustic_cue".into(),
             outcome: Some(Outcome::Complete),
             review_state: Some(ReviewState::Automatic),

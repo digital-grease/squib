@@ -153,6 +153,7 @@ pub struct RunRow {
 pub struct RunSummary {
     pub row: RunRow,
     pub shooter_id: String,
+    pub equipment_ref: Option<String>,
     pub latest_revision: Option<u32>,
     pub accepted_count: Option<u32>,
     pub first_ns: Option<i64>,

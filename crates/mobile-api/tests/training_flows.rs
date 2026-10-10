@@ -133,6 +133,7 @@ fn manual_entry_score_rounds_analytics() {
         include_manual: false,
         include_needs_review: false,
         include_unresolved_start_splits: false,
+        equipment_id: None,
     };
     let a = e.analytics(f.clone()).unwrap();
     assert_eq!(a.included, 0, "manual results excluded by default");

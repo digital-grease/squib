@@ -34,6 +34,8 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("environment_snapshot", &["id"], Merge::Exact),
     ("drill", &["id"], Merge::Exact),
     ("drill_version", &["drill_id", "version"], Merge::Exact),
+    ("equipment", &["id"], Merge::KeepLocal),
+    ("equipment_version", &["equipment_id", "version"], Merge::Exact),
     ("run", &["id"], Merge::Exact),
     ("capture_epoch", &["id"], Merge::Exact),
     ("cue_observation", &["run_id", "cue_id"], Merge::Exact),

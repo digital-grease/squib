@@ -34,6 +34,7 @@ pub fn runs_csv(repo: &Repository) -> Result<String> {
         "edited",
         "timing_method",
         "drill",
+        "equipment",
         "shots",
         "first_shot_s",
         "final_time_s",
@@ -63,6 +64,14 @@ pub fn runs_csv(repo: &Repository) -> Result<String> {
             }
             _ => String::new(),
         };
+        let equipment = detail
+            .config
+            .equipment_version_id
+            .as_deref()
+            .and_then(squib_storage::parse_equipment_ref)
+            .and_then(|(id, v)| repo.load_equipment_version(&id, v).ok().flatten())
+            .map(|e| format!("{} ({}) v{}", e.name, e.category, e.version))
+            .unwrap_or_default();
         w.write_record([
             escape_text(&r.run_id),
             iso_utc(r.created_utc_ms),
@@ -72,6 +81,7 @@ pub fn runs_csv(repo: &Repository) -> Result<String> {
             r.edited.to_string(),
             escape_text(&r.timing_method),
             escape_text(&drill),
+            escape_text(&equipment),
             shots.to_string(),
             secs(r.first_ns),
             secs(r.final_ns),

@@ -13,6 +13,7 @@
 
 mod diagnostic;
 mod env;
+mod equipment;
 mod plans;
 mod records;
 mod repo;
@@ -22,6 +23,7 @@ mod video;
 
 pub use diagnostic::*;
 pub use env::*;
+pub use equipment::*;
 pub use plans::*;
 pub use records::*;
 pub use repo::*;
@@ -31,7 +33,7 @@ pub use video::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 pub const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
@@ -41,6 +43,7 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (5, include_str!("migrations/0005_video.sql")),
     (6, include_str!("migrations/0006_diagnostic_audio.sql")),
     (7, include_str!("migrations/0007_sessions.sql")),
+    (8, include_str!("migrations/0008_equipment.sql")),
 ];
 
 // Migrations are numbered 1..=SCHEMA_VERSION with no gaps (checked at compile time).

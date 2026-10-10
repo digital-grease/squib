@@ -131,6 +131,8 @@ pub struct AnalyticsFilterFfi {
     pub include_manual: bool,
     pub include_needs_review: bool,
     pub include_unresolved_start_splits: bool,
+    /// Compare runs made with this equipment profile (all versions).
+    pub equipment_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -490,7 +492,7 @@ impl SquibEngine {
             route_signature: None,
             shooter_id: shooter.clone(),
             drill_version_id: drill_id.zip(drill_version).map(|(d, v)| drill_ref(&d, v)),
-            equipment_version_id: None,
+            equipment_version_id: self.active_equipment_ref(),
             environment_snapshot_id: self.pin_conditions(now_utc_ms)?,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
@@ -567,6 +569,7 @@ impl SquibEngine {
         filter.include_manual = f.include_manual;
         filter.include_needs_review = f.include_needs_review;
         filter.include_unresolved_start_splits = f.include_unresolved_start_splits;
+        filter.equipment_id = f.equipment_id;
         let s = summarize(&recs, &filter);
         Ok(AnalyticsView {
             considered: s.considered as u32,

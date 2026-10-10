@@ -914,7 +914,7 @@ impl SquibEngine {
             },
             shooter_id: self.active_shooter(),
             drill_version_id: req.drill_id.clone().zip(req.drill_version).map(|(d, v)| squib_storage::drill_ref(&d, v)),
-            equipment_version_id: None,
+            equipment_version_id: self.active_equipment_ref(),
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: req.video,
@@ -1232,6 +1232,7 @@ impl SquibEngine {
                 edited: s.edited,
                 shooter_name: names.get(&s.shooter_id).cloned().unwrap_or_else(|| s.shooter_id.clone()),
                 session_id: s.row.session_id.clone(),
+                equipment: crate::equipment_api::equipment_label(&repo, s.equipment_ref.as_deref()),
             })
             .collect())
     }
@@ -1560,6 +1561,7 @@ pub(crate) fn build_review(repo: &Repository, run_id: &str) -> Result<ReviewView
         .and_then(|s| serde_json::from_str::<PipelineSummary>(s).ok())
         .map(|s| s.clock.quality.as_str().to_string());
     Ok(ReviewView {
+        equipment: crate::equipment_api::equipment_label(repo, d.config.equipment_version_id.as_deref()),
         run_id: d.row.run_id.clone(),
         created_utc_ms: d.row.created_utc_ms,
         mode: d.row.source_mode.clone(),
