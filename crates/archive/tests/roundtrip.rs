@@ -41,6 +41,7 @@ fn cfg(mode: SourceMode, drill: Option<String>, snapshot: Option<String>) -> Run
         equipment_version_id: None,
         environment_snapshot_id: snapshot,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+        capture_video: false,
         app_build: "test".into(),
     }
 }
@@ -125,6 +126,7 @@ fn build(path: &Path, att_root: &Path) -> Repository {
         effects: vec![],
         os_build: "t".into(),
         device_model: "t".into(),
+        camera_recording: false,
     };
     let batch = ObservationBatch {
         batch_seq: 1,
@@ -247,6 +249,37 @@ fn build(path: &Path, att_root: &Path) -> Repository {
     })
     .unwrap();
     repo.link_run("item-1", "manual-1").unwrap();
+    // A video clip with its clock observations.
+    let clip = b"fake-mp4";
+    std::fs::create_dir_all(att_root.join("videos")).unwrap();
+    std::fs::write(att_root.join("videos/v1.mp4"), clip).unwrap();
+    repo.insert_video_clip(&VideoClipRecord {
+        attachment: AttachmentRecord {
+            id: "vid-1".into(),
+            run_id: Some("live-1".into()),
+            kind: "video".into(),
+            relative_path: "videos/v1.mp4".into(),
+            sha256: Sha256::digest(clip).iter().map(|b| format!("{b:02x}")).collect(),
+            bytes: clip.len() as i64,
+            mime: "video/mp4".into(),
+            metadata_stripped: true,
+            created_utc_ms: 17,
+        },
+        run_id: "live-1".into(),
+        width: 1280,
+        height: 720,
+        frame_rate_milli: 29_970,
+        duration_ms: 4_000,
+        first_frame_camera_ns: 9_007_199_254_740_000,
+        camera_clock: "realtime".into(),
+        probe_camera_ns: 9_007_199_254_740_000,
+        probe_mono_ns: 9_007_199_254_740_993,
+        probe_boot_ns: 9_007_199_254_741_001,
+        start_boot_minus_mono_ns: 8,
+        end_boot_minus_mono_ns: 8,
+        created_utc_ms: 17,
+    })
+    .unwrap();
     repo
 }
 
@@ -267,7 +300,7 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     let zip = d.join("backup.zip");
     let summary = export(&mut src, &zip, Some(&att_a));
     assert_eq!(summary.runs, 2);
-    assert_eq!(summary.attachments, 1);
+    assert_eq!(summary.attachments, 2);
     assert!(summary.contains.location, "saved place and precise snapshot are private location data");
     assert!(!summary.contains.raw_audio);
 
@@ -281,7 +314,9 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     assert!(dst.list_runs(10).unwrap().is_empty(), "preview writes nothing");
     let rep = import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
     assert_eq!(rep.inserted["run"], 2);
-    assert_eq!(rep.attachments_restored, 1);
+    assert_eq!(rep.attachments_restored, 2);
+    assert_eq!(dst.video_clips("live-1").unwrap(), src.video_clips("live-1").unwrap(), "clock observations exact");
+    assert_eq!(std::fs::read(att_b.join("videos/v1.mp4")).unwrap(), b"fake-mp4");
     assert_eq!(std::fs::read(att_b.join("photos/a1.jpg")).unwrap(), std::fs::read(att_a.join("photos/a1.jpg")).unwrap());
 
     for id in ["live-1", "manual-1"] {

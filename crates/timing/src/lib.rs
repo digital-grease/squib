@@ -13,3 +13,4 @@ pub mod pipeline;
 pub mod replay;
 pub mod run;
 pub mod synth;
+pub mod video;

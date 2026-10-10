@@ -17,6 +17,24 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
+/// SHA-256 and length of a file, read in chunks so large clips are not held in memory.
+pub fn sha256_file(path: &std::path::Path) -> std::io::Result<(String, u64)> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut n = 0u64;
+    loop {
+        let r = f.read(&mut buf)?;
+        if r == 0 {
+            break;
+        }
+        h.update(&buf[..r]);
+        n += r as u64;
+    }
+    Ok((hex(&h.finalize()), n))
+}
+
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(bytes.len() * 2);

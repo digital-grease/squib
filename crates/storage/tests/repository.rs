@@ -33,6 +33,7 @@ fn live_config() -> RunConfig {
         equipment_version_id: None,
         environment_snapshot_id: None,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+        capture_video: false,
         app_build: "test".into(),
     }
 }
@@ -65,6 +66,7 @@ fn epoch(run_id: &str) -> EpochRecord {
             effects: vec![],
             os_build: "test".into(),
             device_model: "desktop".into(),
+            camera_recording: false,
         },
         clock_domain: "CLOCK_MONOTONIC".into(),
         started_mono_ns: Some(1),

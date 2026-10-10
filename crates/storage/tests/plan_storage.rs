@@ -34,6 +34,7 @@ fn cfg(mode: SourceMode, drill: Option<String>) -> RunConfig {
         equipment_version_id: None,
         environment_snapshot_id: None,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+        capture_video: false,
         app_build: "test".into(),
     }
 }
@@ -82,7 +83,7 @@ fn setup() -> (Repository, String) {
 #[test]
 fn plan_agenda_order_validation_and_progress() {
     let (mut repo, s) = setup();
-    assert_eq!(repo.schema_version().unwrap(), 4);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     repo.create_plan(&plan("p1"), false).unwrap();
     let mut bad = plan("p2");
     bad.date_local = "10/10/2026".into();
@@ -185,7 +186,7 @@ fn upgrade_from_schema_3_with_data() {
         c.execute_batch("INSERT INTO shooter_profile(id, name, created_utc_ms) VALUES ('default', 'Me', 1);").unwrap();
     }
     let mut repo = Repository::open(&p).unwrap();
-    assert_eq!(repo.schema_version().unwrap(), 4);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     assert!(dir.join("journal.pre-v4.bak").exists());
     repo.create_plan(&plan("p1"), true).unwrap();
     assert_eq!(repo.list_plans().unwrap().len(), 1);

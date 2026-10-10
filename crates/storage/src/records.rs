@@ -26,14 +26,24 @@ pub struct RouteInfo {
     pub effects: Vec<String>,
     pub os_build: String,
     pub device_model: String,
+    /// The camera was recording video during capture. A camera session can change the
+    /// audio path, so it is a separate route for calibration and qualification.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub camera_recording: bool,
 }
 
 impl RouteInfo {
     /// Route signature scopes calibration profiles and qualification evidence.
     pub fn signature(&self, sample_rate_hz: u32) -> String {
         format!(
-            "{}|{}|{}|{}|{}Hz|{}",
-            self.device_model, self.input_device, self.output_device, self.audio_source, sample_rate_hz, self.os_build
+            "{}|{}|{}|{}|{}Hz|{}{}",
+            self.device_model,
+            self.input_device,
+            self.output_device,
+            self.audio_source,
+            sample_rate_hz,
+            self.os_build,
+            if self.camera_recording { "|camera" } else { "" }
         )
     }
 }

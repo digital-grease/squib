@@ -361,6 +361,7 @@ impl Repository {
                 .flatten();
             for t in [
                 "plan_run",
+                "video_clip",
                 "attachment",
                 "round_count",
                 "manual_string",

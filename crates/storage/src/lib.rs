@@ -16,22 +16,25 @@ mod plans;
 mod records;
 mod repo;
 mod training;
+mod video;
 
 pub use env::*;
 pub use plans::*;
 pub use records::*;
 pub use repo::*;
 pub use training::*;
+pub use video::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 pub const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_environment.sql")),
     (3, include_str!("migrations/0003_training.sql")),
     (4, include_str!("migrations/0004_day_plans.sql")),
+    (5, include_str!("migrations/0005_video.sql")),
 ];
 
 // Migrations are numbered 1..=SCHEMA_VERSION with no gaps (checked at compile time).

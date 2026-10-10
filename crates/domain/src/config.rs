@@ -230,6 +230,10 @@ pub struct RunConfig {
     pub environment_snapshot_id: Option<String>,
     pub timestamp_mapping_method: String,
     pub app_build: String,
+    /// Opt-in video clip recorded alongside the run (video only, no audio track).
+    /// Omitted when false so configurations from before video keep their hashes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capture_video: bool,
 }
 
 pub const TIMESTAMP_MAPPING_METHOD: &str = "frame-anchor-v1";
@@ -356,8 +360,21 @@ mod tests {
             equipment_version_id: None,
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+            capture_video: false,
             app_build: "test".into(),
         }
+    }
+
+    #[test]
+    fn video_flag_is_omitted_when_off_so_earlier_hashes_hold() {
+        let c = par_only_config();
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(!json.contains("capture_video"));
+        let old: RunConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(old.config_hash(), c.config_hash());
+        let v = RunConfig { capture_video: true, ..c.clone() };
+        assert!(serde_json::to_string(&v).unwrap().contains("\"capture_video\":true"));
+        assert_ne!(v.config_hash(), c.config_hash());
     }
 
     #[test]

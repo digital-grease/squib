@@ -35,6 +35,7 @@ fn config(snapshot: Option<String>) -> RunConfig {
         equipment_version_id: None,
         environment_snapshot_id: snapshot,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
+        capture_video: false,
         app_build: "test".into(),
     }
 }
