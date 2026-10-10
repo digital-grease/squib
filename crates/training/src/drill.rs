@@ -40,10 +40,16 @@ pub struct DrillRecipe {
     pub scoring_profile_version: u32,
     pub notes: String,
     pub equipment_tags: Vec<String>,
+    /// Optional set result over the drill's strings. Omitted when absent so recipes from
+    /// before set results keep their content hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate: Option<crate::aggregate::AggregatePolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DrillError {
+    #[error("set result: {0}")]
+    Aggregate(String),
     #[error("unsupported recipe schema {0}")]
     Schema(u32),
     #[error("title must be 1-{MAX_TITLE} characters")]
@@ -102,8 +108,11 @@ impl DrillRecipe {
         {
             return Err(DrillError::Timing("expected count must be 1-1000".into()));
         }
-        if crate::scoring::builtin(&self.scoring_profile_id, self.scoring_profile_version).is_none() {
+        let Some(profile) = crate::scoring::builtin(&self.scoring_profile_id, self.scoring_profile_version) else {
             return Err(DrillError::Scoring(self.scoring_profile_id.clone(), self.scoring_profile_version));
+        };
+        if let Some(a) = &self.aggregate {
+            a.validate(self.repeats, crate::aggregate::metric_for(&profile)).map_err(DrillError::Aggregate)?;
         }
         Ok(())
     }
@@ -170,6 +179,7 @@ pub fn starter_recipes() -> Vec<DrillRecipe> {
         scoring_profile_version: 1,
         notes: String::new(),
         equipment_tags: vec![],
+        aggregate: None,
     };
     vec![
         DrillRecipe { pars_ms: vec![2000], ..base("Single par", "One par cue two seconds after the start.") },

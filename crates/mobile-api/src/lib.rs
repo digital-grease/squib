@@ -18,6 +18,7 @@ pub mod plans_api;
 pub mod queue;
 pub mod registry;
 pub mod sessions_api;
+pub mod sets_api;
 pub mod store;
 pub mod training_api;
 pub mod video_api;
@@ -29,6 +30,7 @@ pub use equipment_api::*;
 pub use ffi::*;
 pub use plans_api::*;
 pub use sessions_api::*;
+pub use sets_api::*;
 pub use training_api::*;
 pub use video_api::*;
 

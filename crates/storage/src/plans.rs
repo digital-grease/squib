@@ -279,6 +279,15 @@ impl Repository {
         Ok(())
     }
 
+    /// Runs linked to an agenda item, oldest first.
+    pub fn item_run_ids(&self, item_id: &str) -> Result<Vec<String>> {
+        let mut st = self.conn.prepare(
+            "SELECT p.run_id FROM plan_run p JOIN run r ON r.id = p.run_id WHERE p.item_id = ?1 ORDER BY r.created_utc_ms, r.id",
+        )?;
+        let rows = st.query_map(params![item_id], |r| r.get(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn item_progress(&self, item_id: &str) -> Result<ItemProgress> {
         let mut st = self.conn.prepare("SELECT r.outcome FROM plan_run p JOIN run r ON r.id = p.run_id WHERE p.item_id = ?1")?;
         let mut prog = ItemProgress::default();

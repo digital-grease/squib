@@ -5,6 +5,7 @@
 //! touches detector observations; analytics always reports its denominator and
 //! inclusion policy.
 
+pub mod aggregate;
 pub mod analytics;
 pub mod drill;
 pub mod manual;

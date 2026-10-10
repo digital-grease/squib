@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use squib_archive::{ExportOptions, Limits};
 use squib_domain::{DOMAIN_SCHEMA_VERSION, DelayPolicy, RunConfig, SourceMode, TIMESTAMP_MAPPING_METHOD};
 use squib_storage::{AttachmentRecord, DEFAULT_SHOOTER_ID, RunIntent, StorageError, drill_ref, parse_drill_ref};
+use squib_training::aggregate::{AggregatePolicy, Combine};
 use squib_training::analytics::{Filter, Stats, summarize};
 use squib_training::drill::{DrillRecipe, DrillVersion, RECIPE_SCHEMA_VERSION, starter_recipes};
 use squib_training::manual::ManualString;
@@ -47,6 +48,10 @@ pub struct DrillInput {
     pub scoring_profile_id: String,
     pub notes: String,
     pub equipment_tags: Vec<String>,
+    /// Optional set result over the drill's strings: `sum` or `mean`; `None` for none.
+    pub set_result: Option<String>,
+    /// With `set_result`: count only the best N strings (drop the rest).
+    pub keep_best: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -211,6 +216,11 @@ fn to_recipe(d: &DrillInput) -> DrillRecipe {
         scoring_profile_version: 1,
         notes: d.notes.clone(),
         equipment_tags: d.equipment_tags.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect(),
+        aggregate: d.set_result.as_deref().map(|c| AggregatePolicy {
+            // Unknown values fall to the average; validation rejects invalid combinations.
+            combine: if c == "sum" { Combine::Sum } else { Combine::Mean },
+            keep_best: d.keep_best,
+        }),
     }
 }
 
@@ -232,6 +242,11 @@ fn from_recipe(r: &DrillRecipe) -> DrillInput {
         scoring_profile_id: r.scoring_profile_id.clone(),
         notes: r.notes.clone(),
         equipment_tags: r.equipment_tags.clone(),
+        set_result: r.aggregate.as_ref().map(|a| match a.combine {
+            Combine::Sum => "sum".to_string(),
+            Combine::Mean => "mean".to_string(),
+        }),
+        keep_best: r.aggregate.as_ref().and_then(|a| a.keep_best),
     }
 }
 
