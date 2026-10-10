@@ -16,6 +16,7 @@
 
 pub mod backup;
 pub mod cell;
+mod copy;
 pub mod csv_export;
 pub mod diagnostic;
 pub mod share;

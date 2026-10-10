@@ -427,6 +427,75 @@ fn a17_conflicting_records_abort_without_changes() {
     assert_eq!(dst.list_places().unwrap()[0].label, "Different label", "local data untouched");
 }
 
+#[test]
+fn import_as_copy_keeps_both_with_new_ids_and_provenance() {
+    let d = dir("copy");
+    let att_a = d.join("att-a");
+    let mut src = build(&d.join("a.db"), &att_a);
+    let zip = d.join("b.zip");
+    export_private(
+        &mut src,
+        &zip,
+        &ExportOptions {
+            app_version: "t".into(),
+            created_utc_ms: 77,
+            attachment_root: Some(att_a.clone()),
+            include_media: true,
+            include_diagnostic_audio: true,
+        },
+    )
+    .unwrap();
+    // A phone restored from this backup, then changed locally: a normal import conflicts.
+    let att_b = d.join("att-b");
+    let mut dst = Repository::open(&d.join("b.db")).unwrap();
+    dst.ensure_default_shooter(1).unwrap();
+    import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
+    dst.connection().execute("UPDATE saved_place SET label = 'Renamed here' WHERE id = 'pl-1'", []).unwrap();
+    assert!(matches!(import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()), Err(ArchiveError::Conflicts(_))));
+
+    let p = preview_copy(&mut dst, &zip, &d, &Limits::default(), 500).unwrap();
+    assert!(p.conflicts.is_empty() && p.inserted["run"] == 2, "{:?} {:?}", p.conflicts, p.inserted);
+    let rep = import_copy(&mut dst, &zip, &d, Some(&att_b), &Limits::default(), 500).unwrap();
+    assert_eq!(rep.inserted["run"], 2, "both runs copied under new ids");
+    assert_eq!(dst.list_runs(10).unwrap().len(), 4);
+    assert_eq!(dst.list_places().unwrap().len(), 2, "local place kept, archive place copied");
+    assert!(dst.list_places().unwrap().iter().any(|p| p.label == "Renamed here"));
+    // Unchanged reference data is not duplicated.
+    assert_eq!(dst.list_drills().unwrap().len(), src.list_drills().unwrap().len());
+
+    // Every copied run loads (hash chains re-verified) and maps back to its original.
+    let prov: Vec<(String, String, String)> = {
+        let c = dst.connection();
+        let mut st = c.prepare("SELECT entity, new_id, original_id FROM import_provenance").unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(|x| x.unwrap()).collect()
+    };
+    let new_live = prov.iter().find(|p| p.0 == "run" && p.2 == "live-1").map(|p| p.1.clone()).expect("provenance for live-1");
+    let a = src.load_run("live-1").unwrap();
+    let b = dst.load_run(&new_live).unwrap();
+    assert_eq!(a.candidates, b.candidates, "original observations preserved in the copy");
+    assert_eq!(a.revisions.len(), b.revisions.len());
+    assert!(b.revisions.iter().all(|r| r.content.run_id == new_live && r.verify_hash()));
+    assert_ne!(b.config.environment_snapshot_id, a.config.environment_snapshot_id, "snapshot copied with a new id");
+    assert!(b.environment.is_some(), "and still pinned to the copied run");
+    assert_eq!(dst.latest_score(&new_live).unwrap().map(|s| s.entry), src.latest_score("live-1").unwrap().map(|s| s.entry));
+
+    // Attachments are copied under new paths with identical bytes; video and recording follow.
+    let att = dst.list_attachments(Some(&new_live)).unwrap();
+    assert_eq!(att.len(), 3);
+    for x in &att {
+        let orig = src.list_attachments(Some("live-1")).unwrap().into_iter().find(|o| o.kind == x.kind).unwrap();
+        assert_ne!(x.relative_path, orig.relative_path);
+        assert_eq!(std::fs::read(att_b.join(&x.relative_path)).unwrap(), std::fs::read(att_a.join(&orig.relative_path)).unwrap());
+    }
+    assert_eq!(dst.video_clips(&new_live).unwrap().len(), 1);
+    assert!(dst.diagnostic(&new_live).unwrap().is_some());
+
+    // The copied plan links the copied manual run, not the original.
+    let new_manual = prov.iter().find(|p| p.0 == "run" && p.2 == "manual-1").map(|p| p.1.clone()).unwrap();
+    let new_item = prov.iter().find(|p| p.0 == "plan_item" && p.2 == "item-1").map(|p| p.1.clone()).unwrap();
+    assert_eq!(dst.item_run_ids(&new_item).unwrap(), vec![new_manual]);
+}
+
 /// Write a zip from (name, bytes) pairs plus a manifest listing `listed`.
 fn craft(path: &Path, entries: &[(&str, Vec<u8>)], schema: u32, listed: Option<Vec<FileEntry>>) {
     let f = std::fs::File::create(path).unwrap();

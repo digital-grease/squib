@@ -55,6 +55,7 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("plan_run", &["item_id", "run_id"], Merge::Exact),
     ("checklist_item", &["id"], Merge::KeepLocal),
     ("saved_place", &["id"], Merge::Exact),
+    ("import_provenance", &["entity", "new_id"], Merge::Exact),
     ("env_override", &["field"], Merge::KeepLocal),
     ("app_setting", &["key"], Merge::KeepLocal),
 ];
@@ -90,7 +91,7 @@ pub struct Manifest {
     pub files: Vec<FileEntry>,
 }
 
-type Row = BTreeMap<String, Option<Cell>>;
+pub(crate) type Row = BTreeMap<String, Option<Cell>>;
 
 fn sha(b: &[u8]) -> String {
     Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
@@ -251,10 +252,10 @@ fn safe_name(name: &str) -> bool {
 }
 
 /// Archive contents after structural validation; nothing written anywhere yet.
-struct Loaded {
-    manifest: Manifest,
-    tables: BTreeMap<String, Vec<Row>>,
-    attachments: BTreeMap<String, Vec<u8>>,
+pub(crate) struct Loaded {
+    pub(crate) manifest: Manifest,
+    pub(crate) tables: BTreeMap<String, Vec<Row>>,
+    pub(crate) attachments: BTreeMap<String, Vec<u8>>,
 }
 
 fn load(path: &Path, limits: &Limits) -> Result<Loaded> {
@@ -529,7 +530,54 @@ pub fn import(
     attachment_root: Option<&Path>,
     limits: &Limits,
 ) -> Result<ImportReport> {
-    let l = load(archive, limits)?;
+    import_as(repo, archive, scratch_dir, attachment_root, limits, None)
+}
+
+/// Import an archive as a copy: every journal record gets a new id and the originals
+/// are kept as provenance (see `copy`). Used when a normal import reports conflicts.
+pub fn import_copy(
+    repo: &mut Repository,
+    archive: &Path,
+    scratch_dir: &Path,
+    attachment_root: Option<&Path>,
+    limits: &Limits,
+    now_utc_ms: i64,
+) -> Result<ImportReport> {
+    import_as(repo, archive, scratch_dir, attachment_root, limits, Some(now_utc_ms))
+}
+
+/// What importing as a copy would do. Nothing is written.
+pub fn preview_copy(
+    repo: &mut Repository,
+    archive: &Path,
+    scratch_dir: &Path,
+    limits: &Limits,
+    now_utc_ms: i64,
+) -> Result<ImportReport> {
+    let mut l = load(archive, limits)?;
+    crate::copy::remap_for_copy(&mut l, repo.connection(), now_utc_ms)?;
+    let staging =
+        stage(&l, scratch_dir).inspect_err(|_| cleanup(&scratch_dir.join(format!("squib-import-{}.db", std::process::id()))))?;
+    let r = merge(repo.connection(), &staging, false);
+    cleanup(&staging);
+    let mut r = r?;
+    r.schema_version = l.manifest.schema_version;
+    r.contains_location = l.manifest.contains.location;
+    Ok(r)
+}
+
+fn import_as(
+    repo: &mut Repository,
+    archive: &Path,
+    scratch_dir: &Path,
+    attachment_root: Option<&Path>,
+    limits: &Limits,
+    copy_at: Option<i64>,
+) -> Result<ImportReport> {
+    let mut l = load(archive, limits)?;
+    if let Some(now) = copy_at {
+        crate::copy::remap_for_copy(&mut l, repo.connection(), now)?;
+    }
     let staging =
         stage(&l, scratch_dir).inspect_err(|_| cleanup(&scratch_dir.join(format!("squib-import-{}.db", std::process::id()))))?;
     let r = merge(repo.connection(), &staging, true);

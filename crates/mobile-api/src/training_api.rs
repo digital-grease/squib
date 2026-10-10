@@ -757,6 +757,46 @@ impl SquibEngine {
         Ok(import_view(&r))
     }
 
+    /// What importing as a copy would add: every record gets a new id, so nothing conflicts.
+    pub fn preview_import_copy(
+        &self,
+        archive_path: String,
+        scratch_dir: String,
+        now_utc_ms: i64,
+    ) -> Result<ImportView, SquibError> {
+        let r = self.store_actor().exec(move |repo| {
+            squib_archive::preview_copy(repo, Path::new(&archive_path), Path::new(&scratch_dir), &Limits::default(), now_utc_ms)
+                .map_err(|e| StorageError::Conflict(e.to_string()))
+        })?;
+        Ok(import_view(&r))
+    }
+
+    /// Import as a copy (doc 06): used when a normal import reports conflicts. Keeps
+    /// both versions; original ids are recorded as provenance.
+    pub fn import_backup_copy(
+        &self,
+        archive_path: String,
+        scratch_dir: String,
+        attachment_root: Option<String>,
+        now_utc_ms: i64,
+    ) -> Result<ImportView, SquibError> {
+        if self.run_active() {
+            return Err(SquibError::Rejected("finish the current run before importing".into()));
+        }
+        let r = self.store_actor().exec(move |repo| {
+            squib_archive::import_copy(
+                repo,
+                Path::new(&archive_path),
+                Path::new(&scratch_dir),
+                attachment_root.as_deref().map(Path::new),
+                &Limits::default(),
+                now_utc_ms,
+            )
+            .map_err(|e| StorageError::Conflict(e.to_string()))
+        })?;
+        Ok(import_view(&r))
+    }
+
     pub fn export_csv(&self) -> Result<String, SquibError> {
         squib_archive::csv_export::runs_csv(&self.read_repo()).map_err(inval)
     }
