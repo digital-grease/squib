@@ -362,6 +362,7 @@ impl Repository {
             for t in [
                 "plan_run",
                 "video_clip",
+                "diagnostic_recording",
                 "attachment",
                 "round_count",
                 "manual_string",

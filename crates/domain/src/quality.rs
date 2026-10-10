@@ -63,6 +63,8 @@ pub enum QualityKind {
     ProcessTerminated,
     /// Route not qualified for verified acoustic timing.
     RouteUnqualified,
+    /// The opt-in diagnostic recording could not be started; timing is unaffected.
+    DiagnosticRecordingFailed,
 }
 
 impl QualityKind {
@@ -97,6 +99,7 @@ impl QualityKind {
             QualityKind::StorageWriteFailed => "storage_write_failed",
             QualityKind::ProcessTerminated => "process_terminated",
             QualityKind::RouteUnqualified => "route_unqualified",
+            QualityKind::DiagnosticRecordingFailed => "diagnostic_recording_failed",
         }
     }
 
@@ -131,6 +134,7 @@ impl QualityKind {
             QualityKind::StorageWriteFailed => "Save failed",
             QualityKind::ProcessTerminated => "App closed during run",
             QualityKind::RouteUnqualified => "Route not qualified",
+            QualityKind::DiagnosticRecordingFailed => "Diagnostic recording failed",
         }
     }
 }

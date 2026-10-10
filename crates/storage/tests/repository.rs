@@ -34,6 +34,7 @@ fn live_config() -> RunConfig {
         environment_snapshot_id: None,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
         capture_video: false,
+        diagnostic_recording: false,
         app_build: "test".into(),
     }
 }

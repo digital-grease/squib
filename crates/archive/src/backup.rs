@@ -45,6 +45,7 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("round_count", &["run_id"], Merge::Exact),
     ("attachment", &["id"], Merge::Exact),
     ("video_clip", &["attachment_id"], Merge::Exact),
+    ("diagnostic_recording", &["attachment_id"], Merge::Exact),
     // Plans stay editable (notes, skip, checks), so a local copy wins over an older backup.
     ("day_plan", &["id"], Merge::KeepLocal),
     ("plan_item", &["id"], Merge::KeepLocal),
@@ -67,7 +68,7 @@ pub struct Contains {
     /// Saved places, remembered places, or precise conditions provenance.
     pub location: bool,
     pub attachments: bool,
-    /// Always false: Squib does not record audio.
+    /// Opt-in diagnostic recordings are included (never by default).
     pub raw_audio: bool,
     pub notes: bool,
 }
@@ -113,6 +114,11 @@ pub struct ExportOptions {
     pub created_utc_ms: i64,
     /// App-owned attachment directory; `None` excludes attachment files.
     pub attachment_root: Option<PathBuf>,
+    /// Include photo and video files (with `attachment_root`).
+    pub include_media: bool,
+    /// Include opt-in diagnostic audio recordings (rows and files). Off by default in
+    /// the app; requires `attachment_root`.
+    pub include_diagnostic_audio: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -132,16 +138,27 @@ pub fn export_private(repo: &mut Repository, out: &Path, opts: &ExportOptions) -
         tables.insert(t, dump_table(&tx, t, pk)?);
     }
     tx.finish()?;
+    // Diagnostic audio leaves the phone in a backup only when explicitly chosen; when
+    // excluded, its rows go too, so a restore never shows a recording without a file.
+    let include_audio = opts.include_diagnostic_audio && opts.attachment_root.is_some();
+    if !include_audio {
+        if let Some(rows) = tables.get_mut("attachment") {
+            rows.retain(|r| !matches!(r.get("kind"), Some(Some(Cell::Text(k))) if k == squib_storage::DIAGNOSTIC_KIND));
+        }
+        if let Some(rows) = tables.get_mut("diagnostic_recording") {
+            rows.clear();
+        }
+    }
     let count = |t: &str| tables.get(t).map(|v| v.len()).unwrap_or(0) as u64;
     let precise_snapshot =
         tables["environment_snapshot"].iter().any(|r| matches!(r.get("retention"), Some(Some(Cell::Text(v))) if v == "precise"));
     let remembered_place =
         tables["app_setting"].iter().any(|r| matches!(r.get("key"), Some(Some(Cell::Text(k))) if k == "last_place"));
-    let include_files = opts.attachment_root.is_some();
+    let include_files = opts.attachment_root.is_some() && opts.include_media;
     let contains = Contains {
         location: count("saved_place") > 0 || precise_snapshot || remembered_place,
         attachments: include_files && count("attachment") > 0,
-        raw_audio: false,
+        raw_audio: include_audio && count("diagnostic_recording") > 0,
         notes: true,
     };
 
@@ -160,6 +177,10 @@ pub fn export_private(repo: &mut Repository, out: &Path, opts: &ExportOptions) -
     if let Some(root) = &opts.attachment_root {
         for r in &tables["attachment"] {
             let Some(Some(Cell::Text(rel))) = r.get("relative_path") else { continue };
+            let diagnostic = matches!(r.get("kind"), Some(Some(Cell::Text(k))) if k == squib_storage::DIAGNOSTIC_KIND);
+            if !diagnostic && !opts.include_media {
+                continue;
+            }
             // Never read outside the attachment root, whatever the journal says.
             if !squib_storage::valid_attachment_path(rel) {
                 return Err(ArchiveError::InvalidData { table: "attachment".into(), detail: format!("unsafe path {rel:?}") });

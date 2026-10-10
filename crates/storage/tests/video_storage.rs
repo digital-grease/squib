@@ -1,4 +1,5 @@
 //! Schema 5: video clips as attachments with raw clock observations, upgrade from 4.
+//! Schema 6: diagnostic audio recordings, upgrade from 5.
 
 use std::path::PathBuf;
 
@@ -70,7 +71,7 @@ fn upgrade_from_schema_4_keeps_photos_and_accepts_videos() {
         );
     }
     let mut repo = Repository::open(&p).unwrap();
-    assert_eq!(repo.schema_version().unwrap(), 5);
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
     assert!(dir.join("journal.pre-v5.bak").exists());
     let photos = repo.list_attachments(Some("r1")).unwrap();
     assert_eq!((photos.len(), photos[0].id.as_str(), photos[0].kind.as_str()), (1, "ph1", "photo"));
@@ -86,4 +87,57 @@ fn upgrade_from_schema_4_keeps_photos_and_accepts_videos() {
     let d = repo.delete_run("r1").unwrap();
     assert_eq!(d.attachment_paths.len(), 2);
     assert!(repo.video_clips("r1").unwrap().is_empty());
+}
+
+#[test]
+fn upgrade_from_schema_5_keeps_video_clips_and_allows_diagnostic_audio() {
+    let dir = tmpdir("upgrade6");
+    let p = dir.join("journal5.db");
+    {
+        let c = rusqlite::Connection::open(&p).unwrap();
+        for (_, sql) in &MIGRATIONS[..5] {
+            c.execute_batch(sql).unwrap();
+        }
+        c.pragma_update(None, "user_version", 5).unwrap();
+        c.execute_batch(
+            "INSERT INTO shooter_profile(id, name, created_utc_ms) VALUES ('default', 'Me', 1);
+             INSERT INTO session(id, shooter_id, started_utc_ms, tz_offset_min, active) VALUES ('s1', 'default', 1, 0, 1);
+             INSERT INTO run(id, session_id, shooter_id, created_utc_ms, tz_offset_min, source_mode, config_json, config_hash,
+               app_build, domain_schema_version, persist_state, outcome)
+               VALUES ('r1','s1','default',5,0,'phone_live','{}','h','t',1,'saved','complete');
+             INSERT INTO attachment(id, run_id, kind, relative_path, sha256, bytes, mime, metadata_stripped, created_utc_ms)
+               VALUES ('v1', 'r1', 'video', 'videos/a.mp4', 'aa', 10, 'video/mp4', 1, 9);
+             INSERT INTO video_clip VALUES ('v1','r1',1280,720,30000,5000,1,'realtime',1,2,3,1,1,9);",
+        )
+        .unwrap();
+    }
+    let mut repo = Repository::open(&p).unwrap();
+    assert_eq!(repo.schema_version().unwrap(), SCHEMA_VERSION);
+    assert_eq!(repo.video_clips("r1").unwrap().len(), 1, "video rows survive the attachment rebuild");
+    let rec = DiagnosticRecord {
+        attachment: AttachmentRecord {
+            id: "d1".into(),
+            run_id: Some("r1".into()),
+            kind: DIAGNOSTIC_KIND.into(),
+            relative_path: "diagnostics/r1.wav".into(),
+            sha256: "bb".into(),
+            bytes: 44,
+            mime: "audio/wav".into(),
+            metadata_stripped: true,
+            created_utc_ms: 10,
+        },
+        run_id: "r1".into(),
+        epoch_id: Some("e1".into()),
+        sample_rate_hz: 48_000,
+        first_epoch_frame: 480,
+        frames: 0,
+        gaps: vec![(960, 1440)],
+        truncated: true,
+        dropped_frames: 480,
+        created_utc_ms: 10,
+    };
+    repo.insert_diagnostic(&rec).unwrap();
+    assert_eq!(repo.diagnostic("r1").unwrap(), Some(rec));
+    let d = repo.delete_run("r1").unwrap();
+    assert_eq!(d.attachment_paths.len(), 2, "video and recording files are reported for removal");
 }

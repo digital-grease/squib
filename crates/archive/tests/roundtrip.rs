@@ -42,6 +42,7 @@ fn cfg(mode: SourceMode, drill: Option<String>, snapshot: Option<String>) -> Run
         environment_snapshot_id: snapshot,
         timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
         capture_video: false,
+        diagnostic_recording: false,
         app_build: "test".into(),
     }
 }
@@ -280,6 +281,33 @@ fn build(path: &Path, att_root: &Path) -> Repository {
         created_utc_ms: 17,
     })
     .unwrap();
+    // An opt-in diagnostic recording.
+    let audio = b"RIFF-fake-wav";
+    std::fs::create_dir_all(att_root.join("diagnostics")).unwrap();
+    std::fs::write(att_root.join("diagnostics/live-1.wav"), audio).unwrap();
+    repo.insert_diagnostic(&DiagnosticRecord {
+        attachment: AttachmentRecord {
+            id: "diag-1".into(),
+            run_id: Some("live-1".into()),
+            kind: DIAGNOSTIC_KIND.into(),
+            relative_path: "diagnostics/live-1.wav".into(),
+            sha256: Sha256::digest(audio).iter().map(|b| format!("{b:02x}")).collect(),
+            bytes: audio.len() as i64,
+            mime: "audio/wav".into(),
+            metadata_stripped: true,
+            created_utc_ms: 18,
+        },
+        run_id: "live-1".into(),
+        epoch_id: None,
+        sample_rate_hz: 48_000,
+        first_epoch_frame: 0,
+        frames: 6,
+        gaps: vec![(2, 3)],
+        truncated: false,
+        dropped_frames: 1,
+        created_utc_ms: 18,
+    })
+    .unwrap();
     repo
 }
 
@@ -287,7 +315,13 @@ fn export(repo: &mut Repository, out: &Path, att: Option<&Path>) -> ExportSummar
     export_private(
         repo,
         out,
-        &ExportOptions { app_version: "test".into(), created_utc_ms: 99, attachment_root: att.map(Path::to_path_buf) },
+        &ExportOptions {
+            app_version: "test".into(),
+            created_utc_ms: 99,
+            attachment_root: att.map(Path::to_path_buf),
+            include_media: true,
+            include_diagnostic_audio: false,
+        },
     )
     .unwrap()
 }
@@ -314,7 +348,10 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     assert!(dst.list_runs(10).unwrap().is_empty(), "preview writes nothing");
     let rep = import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
     assert_eq!(rep.inserted["run"], 2);
-    assert_eq!(rep.attachments_restored, 2);
+    assert_eq!(rep.attachments_restored, 2, "diagnostic audio is not in a default backup");
+    assert!(!summary.contains.raw_audio);
+    assert!(dst.diagnostic("live-1").unwrap().is_none());
+    assert!(!att_b.join("diagnostics/live-1.wav").exists());
     assert_eq!(dst.video_clips("live-1").unwrap(), src.video_clips("live-1").unwrap(), "clock observations exact");
     assert_eq!(std::fs::read(att_b.join("videos/v1.mp4")).unwrap(), b"fake-mp4");
     assert_eq!(std::fs::read(att_b.join("photos/a1.jpg")).unwrap(), std::fs::read(att_a.join("photos/a1.jpg")).unwrap());
@@ -345,6 +382,34 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     let again = import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
     assert_eq!(again.inserted.values().sum::<u64>(), 0);
     assert!(again.skipped_identical["run"] == 2);
+}
+
+#[test]
+fn diagnostic_audio_is_in_a_backup_only_when_chosen() {
+    let d = dir("diag-backup");
+    let att_a = d.join("att-a");
+    let mut src = build(&d.join("a.db"), &att_a);
+    let zip = d.join("with-audio.zip");
+    let s = export_private(
+        &mut src,
+        &zip,
+        &ExportOptions {
+            app_version: "t".into(),
+            created_utc_ms: 1,
+            attachment_root: Some(att_a.clone()),
+            include_media: false,
+            include_diagnostic_audio: true,
+        },
+    )
+    .unwrap();
+    assert!(s.contains.raw_audio);
+    assert_eq!(s.attachments, 1, "only the recording; photos and videos were not chosen");
+    let att_b = d.join("att-b");
+    let mut dst = Repository::open(&d.join("b.db")).unwrap();
+    dst.ensure_default_shooter(1).unwrap();
+    import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
+    assert_eq!(dst.diagnostic("live-1").unwrap(), src.diagnostic("live-1").unwrap(), "gaps and frame offsets exact");
+    assert_eq!(std::fs::read(att_b.join("diagnostics/live-1.wav")).unwrap(), b"RIFF-fake-wav");
 }
 
 #[test]

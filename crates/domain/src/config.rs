@@ -234,6 +234,10 @@ pub struct RunConfig {
     /// Omitted when false so configurations from before video keep their hashes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub capture_video: bool,
+    /// Opt-in: keep the captured audio of this run as a bounded local diagnostic
+    /// recording (live mode only). Omitted when false, like `capture_video`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub diagnostic_recording: bool,
 }
 
 pub const TIMESTAMP_MAPPING_METHOD: &str = "frame-anchor-v1";
@@ -270,6 +274,9 @@ impl RunConfig {
         if self.shooter_id.is_empty() {
             return Err(ConfigError::ShooterMissing);
         }
+        if self.diagnostic_recording && !self.source_mode.needs_microphone() {
+            return Err(ConfigError::DiagnosticWithoutMicrophone);
+        }
         Ok(())
     }
 
@@ -303,6 +310,8 @@ pub fn validate_pars(pars_ms: &[u32]) -> Result<(), ConfigError> {
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ConfigError {
+    #[error("a diagnostic recording needs a microphone mode")]
+    DiagnosticWithoutMicrophone,
     #[error("source mode {0:?} is not available in this build")]
     ModeUnavailable(SourceMode),
     #[error("start delay {0} ms exceeds the documented maximum")]
@@ -361,6 +370,7 @@ mod tests {
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
+            diagnostic_recording: false,
             app_build: "test".into(),
         }
     }
@@ -369,7 +379,7 @@ mod tests {
     fn video_flag_is_omitted_when_off_so_earlier_hashes_hold() {
         let c = par_only_config();
         let json = serde_json::to_string(&c).unwrap();
-        assert!(!json.contains("capture_video"));
+        assert!(!json.contains("capture_video") && !json.contains("diagnostic_recording"));
         let old: RunConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(old.config_hash(), c.config_hash());
         let v = RunConfig { capture_video: true, ..c.clone() };
