@@ -1,5 +1,6 @@
 package net.digitalgrease.squib
 
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -45,13 +46,22 @@ class PracticeFlowTest {
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("analytics_count")).fetchSemanticsNodes().isNotEmpty() }
         // Manual results are excluded unless chosen, and the exclusion is stated.
         rule.waitUntil(5_000) { has("manual results") }
+        val included = {
+            rule.onNodeWithTag("analytics_count").fetchSemanticsNode().config
+                .getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString { it.text }
+                ?.substringBefore(" of ")?.trim()?.toIntOrNull() ?: -1
+        }
+        val before = included()
         rule.onNodeWithText("Include manual").performClick()
-        rule.waitUntil(5_000) { has("too few for a trend") }
+        rule.waitOrDump { included() > before }
+        // Other tests share this phone's history, so the count varies; the label must match it.
+        val n = included()
+        if (n < 5) rule.waitOrDump { has("too few for a trend") } else check(!has("too few for a trend")) { "$n runs is enough for a trend" }
         // Charts and the speed/score list come from the same included runs.
         rule.onNodeWithTag("toggle_charts").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("trend_s")).fetchSemanticsNodes().isNotEmpty() }
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("speed_score_list")).fetchSemanticsNodes().isNotEmpty() }
-        rule.waitUntil(5_000) { has("Fewer than five runs") }
+        if (n < 5) rule.waitOrDump { has("Fewer than five runs") }
     }
 
     @Test

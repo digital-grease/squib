@@ -240,8 +240,28 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
 
     /** Copy a picked photo into app storage, re-encoded as JPEG so EXIF/GPS metadata is dropped. */
     fun addPhoto(runId: String, uri: Uri, onDone: () -> Unit) = act {
-        val bmp: Bitmap = app.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        val cr = app.contentResolver
+        // Bounds first, so very large photos are decoded at a reduced size.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val opts = BitmapFactory.Options().apply { inSampleSize = PhotoPrep.sampleSize(bounds.outWidth, bounds.outHeight) }
+        val decoded: Bitmap = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
             ?: throw IllegalStateException("could not read image")
+        // Apply the camera's orientation to the pixels, because re-encoding drops the EXIF
+        // tag that told viewers how to rotate it (along with GPS and other metadata).
+        val orientation = cr.openInputStream(uri)?.use {
+            runCatching {
+                android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)
+            }.getOrDefault(android.media.ExifInterface.ORIENTATION_NORMAL)
+        } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+        val t = PhotoPrep.transform(orientation)
+        val bmp = if (t.isIdentity) decoded else {
+            val m = android.graphics.Matrix().apply {
+                if (t.mirror) postScale(-1f, 1f)
+                postRotate(t.rotateDeg.toFloat())
+            }
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, true).also { if (it !== decoded) decoded.recycle() }
+        }
         val rel = "photos/${UUID.randomUUID()}.jpg"
         val dest = File(attachmentRoot, rel).also { it.parentFile?.mkdirs() }
         val tmp = File(dest.path + ".partial")
