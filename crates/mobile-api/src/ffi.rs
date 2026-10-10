@@ -130,6 +130,9 @@ pub struct ArmRequest {
     pub plan_item_id: Option<String>,
     /// Opt-in: the platform records a video clip (no audio track) for this run.
     pub video: bool,
+    /// Opt-in diagnostic recording: the app's attachment directory to write it under.
+    /// `None` keeps the default (no audio is saved).
+    pub diagnostic_root: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]

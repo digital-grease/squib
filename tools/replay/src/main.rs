@@ -252,6 +252,100 @@ fn cmd_bench(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// M5 experiment 3: an opt-in diagnostic export. Checks that replay reproduces the
+/// phone's detections, then scores detector variants against the user's own review.
+/// Scoring is at candidate level: a labelled shot is found when a candidate onset lies
+/// within 0.25 ms of it; other candidates after the start and outside cue audio are false.
+fn cmd_diag(args: &[String]) -> ExitCode {
+    use squib_archive::diagnostic::read_diagnostic;
+    use squib_timing::stress::{exploratory, variants};
+    let Some(path) = args.first() else {
+        eprintln!("usage: squib-replay diag <export.zip>");
+        return ExitCode::from(2);
+    };
+    let b = match read_diagnostic(Path::new(path)) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("cannot read export: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut wav = match hound::WavReader::new(std::io::Cursor::new(&b.wav)) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("recording.wav is not a valid WAV: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let pcm: Vec<i16> = wav.samples::<i16>().map(|s| s.unwrap_or(0)).collect();
+    let rate = b.recording.sample_rate_hz;
+    let off = b.recording.first_epoch_frame;
+    let Some(recorded) = b.config.detector.clone() else {
+        eprintln!("export has no detector configuration");
+        return ExitCode::FAILURE;
+    };
+    let run = |det: &DetectorConfig| replay(&pcm, rate, &ReplayOptions::new(det.clone()));
+    let base = run(&recorded);
+    let got: Vec<(i64, i64)> = base.candidates.iter().map(|c| (c.onset_frame + off, c.peak_frame + off)).collect();
+    let want: Vec<(i64, i64)> = b.labels.candidates.iter().map(|c| (c.onset_frame, c.peak_frame)).collect();
+    let exact = got == want;
+    let shots: Vec<i64> = b.labels.accepted.iter().filter_map(|e| e.epoch_frame).collect();
+    let tol = i64::from(rate) / 4000;
+    let minutes = pcm.len() as f64 / f64::from(rate) / 60.0;
+    let score = |out: &squib_timing::replay::ReplayOutput| {
+        let onsets: Vec<i64> = out.candidates.iter().map(|c| c.onset_frame + off).collect();
+        let mut used = vec![false; onsets.len()];
+        let mut found = 0;
+        for s in &shots {
+            if let Some((i, _)) = onsets
+                .iter()
+                .enumerate()
+                .filter(|(i, o)| !used[*i] && (**o - s).abs() <= tol)
+                .min_by_key(|(_, o)| (**o - s).abs())
+            {
+                used[i] = true;
+                found += 1;
+            }
+        }
+        // As the app's classification does: candidates inside a heard cue, or before the
+        // start reference, are cues or pre-start sounds, not false shots.
+        let excluded = |o: i64| {
+            b.labels.start_ref_frame.is_some_and(|st| o < st)
+                || b.labels.cues.iter().any(|c| match (c.span_start_frame, c.span_end_frame) {
+                    (Some(a), Some(e)) => (a..=e).contains(&o),
+                    _ => false,
+                })
+        };
+        let false_n = used.iter().zip(&onsets).filter(|(u, o)| !**u && !excluded(**o)).count();
+        serde_json::json!({
+            "recall": if shots.is_empty() { 1.0 } else { found as f64 / shots.len() as f64 },
+            "found": found,
+            "false_candidates": false_n,
+            "false_per_min": false_n as f64 / minutes.max(1e-9),
+        })
+    };
+    let mut rows = vec![serde_json::json!({"variant": "as_recorded", "score": score(&base)})];
+    for (name, det) in variants().into_iter().chain(exploratory()) {
+        rows.push(serde_json::json!({"variant": name, "score": score(&run(&det))}));
+    }
+    let report = serde_json::json!({
+        "evidence_level": "single opt-in field recording (not a cohort)",
+        "export_id": b.manifest.export_id,
+        "consent_scope": b.manifest.consent.scope,
+        "device": b.config.route.as_ref().map(|r| r.device_model.clone()),
+        "seconds": pcm.len() as f64 / f64::from(rate),
+        "gaps": b.recording.gaps.len(),
+        "truncated": b.recording.truncated,
+        "reproduces_phone_candidates": exact,
+        "reproduction_note": if b.recording.gaps.is_empty() { "no gaps: exact reproduction expected" } else { "gaps present: frames were silenced, so exact reproduction is not expected" },
+        "labelled_shots": shots.len(),
+        "reviewed_by_person": b.labels.reviewed_by_person,
+        "results": rows,
+    });
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    if !exact && b.recording.gaps.is_empty() { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
 /// M5 experiment 2: every pre-declared variant on every cohort, plus verdicts.
 fn cmd_stress(args: &[String]) -> ExitCode {
     use squib_timing::stress::{COHORTS, exploratory, run_cohort, variants, verdict};
@@ -310,8 +404,9 @@ fn main() -> ExitCode {
         Some("corpus") => cmd_corpus(&PathBuf::from(args.get(1).map(String::as_str).unwrap_or("fixtures/synthetic"))),
         Some("bench") => cmd_bench(&args[1..]),
         Some("stress") => cmd_stress(&args[1..]),
+        Some("diag") => cmd_diag(&args[1..]),
         _ => {
-            eprintln!("usage: squib-replay <gen|run|corpus|bench|stress> ...");
+            eprintln!("usage: squib-replay <gen|run|corpus|bench|stress|diag> ...");
             ExitCode::from(2)
         }
     }

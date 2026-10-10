@@ -33,6 +33,7 @@ fn arm_req(item: Option<String>) -> ArmRequest {
         drill_version: None,
         plan_item_id: item,
         video: false,
+        diagnostic_root: None,
     }
 }
 

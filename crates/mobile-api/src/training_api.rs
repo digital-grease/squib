@@ -167,6 +167,8 @@ pub struct BackupView {
     pub runs: u64,
     pub attachments: u64,
     pub contains_location: bool,
+    /// Opt-in diagnostic recordings are included.
+    pub contains_audio: bool,
     pub encrypted: bool,
 }
 
@@ -492,6 +494,7 @@ impl SquibEngine {
             environment_snapshot_id: self.pin_conditions(now_utc_ms)?,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
+            diagnostic_recording: false,
             app_build,
         };
         config.validate().map_err(inval)?;
@@ -637,11 +640,19 @@ impl SquibEngine {
     pub fn export_backup(
         &self,
         out_path: String,
-        attachment_root: Option<String>,
+        attachment_root: String,
+        include_media: bool,
+        include_diagnostic_audio: bool,
         app_version: String,
         now_utc_ms: i64,
     ) -> Result<BackupView, SquibError> {
-        let opts = ExportOptions { app_version, created_utc_ms: now_utc_ms, attachment_root: attachment_root.map(PathBuf::from) };
+        let opts = ExportOptions {
+            app_version,
+            created_utc_ms: now_utc_ms,
+            attachment_root: Some(PathBuf::from(attachment_root)),
+            include_media,
+            include_diagnostic_audio,
+        };
         let s = self.store_actor().exec(move |repo| {
             squib_archive::export_private(repo, Path::new(&out_path), &opts).map_err(|e| StorageError::Write(e.to_string()))
         })?;
@@ -650,6 +661,7 @@ impl SquibEngine {
             runs: s.runs,
             attachments: s.attachments,
             contains_location: s.contains.location,
+            contains_audio: s.contains.raw_audio,
             encrypted: false,
         })
     }

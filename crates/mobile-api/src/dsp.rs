@@ -15,6 +15,7 @@ use squib_timing::clock::FrameAnchor;
 use squib_timing::cue::CueRequest;
 use squib_timing::pipeline::{DspEvent, Pipeline, PipelineSummary};
 
+use crate::diag::DiagTap;
 use crate::queue::PcmQueue;
 
 pub const OUT_CAPACITY: usize = 4096;
@@ -104,6 +105,17 @@ pub struct DspWorker {
 
 impl DspWorker {
     pub fn spawn(fmt: EpochFormat, detector: Option<DetectorConfig>, queue: Arc<PcmQueue>, mode: WorkerMode) -> Self {
+        Self::spawn_with(fmt, detector, queue, mode, None)
+    }
+
+    /// As `spawn`, optionally offering every processed block to a diagnostic recording.
+    pub fn spawn_with(
+        fmt: EpochFormat,
+        detector: Option<DetectorConfig>,
+        queue: Arc<PcmQueue>,
+        mode: WorkerMode,
+        tap: Option<DiagTap>,
+    ) -> Self {
         let (cmd_tx, cmd_rx) = bounded::<WorkerCmd>(64);
         let (out_tx, out_rx) = bounded::<WorkerOut>(OUT_CAPACITY);
         let control_overflow = Arc::new(AtomicBool::new(false));
@@ -115,7 +127,7 @@ impl DspWorker {
         let pe = published_end.clone();
         let thread = std::thread::Builder::new()
             .name("squib-dsp".into())
-            .spawn(move || run_worker(fmt, detector, q, mode, cmd_rx, out_tx, ov, st, pe))
+            .spawn(move || run_worker(fmt, detector, q, mode, cmd_rx, out_tx, ov, st, pe, tap))
             .expect("spawn dsp thread");
         Self { queue, cmd_tx, out_rx, thread: Some(thread), control_overflow, stats, published_end }
     }
@@ -166,6 +178,7 @@ fn run_worker(
     overflow: Arc<AtomicBool>,
     stats: Arc<Mutex<ProcStats>>,
     published_end: Arc<AtomicI64>,
+    tap: Option<DiagTap>,
 ) {
     let mut p = Pipeline::new(fmt, detector);
     let mut ambient = match mode {
@@ -223,6 +236,9 @@ fn run_worker(
             let t0 = Instant::now();
             let samples = &b.samples[..b.frame_count as usize];
             p.process_i16(&h, samples, &mut |e| send(WorkerOut::Dsp(e)));
+            if let Some(t) = &tap {
+                t.offer(b.first_frame, samples);
+            }
             if !ambient_done && let Some(a) = ambient.as_mut() {
                 scratch.clear();
                 scratch.extend(samples.iter().map(|&s| f32::from(s) / 32768.0));

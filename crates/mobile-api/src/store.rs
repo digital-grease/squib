@@ -77,6 +77,11 @@ impl StoreActor {
     }
 
     /// Run `f` on the writer thread and wait for its result.
+    /// A sender for work queued from another thread (the writer order is kept).
+    pub fn sender(&self) -> Sender<StoreCmd> {
+        self.tx.clone()
+    }
+
     pub fn exec<T: Send + 'static>(&self, f: impl FnOnce(&mut Repository) -> SResult<T> + Send + 'static) -> SResult<T> {
         let (tx, rx) = bounded(1);
         self.send(StoreCmd::Exec(Box::new(move |repo| {

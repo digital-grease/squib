@@ -86,6 +86,9 @@ impl Capture {
 struct ActiveRun {
     run_id: String,
     plan_item_id: Option<String>,
+    /// Attachment root for an opt-in diagnostic recording, and the writer once capture runs.
+    diag_root: Option<String>,
+    diag: Option<crate::diag::DiagWriter>,
     session_id: String,
     config: RunConfig,
     created_utc_ms: i64,
@@ -267,6 +270,16 @@ impl SquibEngine {
                 if let Some(r) = g.run.as_mut() {
                     r.pending_commit = Some((outcome, now_ns));
                     r.commit_inflight = false;
+                    // Capture is stopping (StopCapture precedes this effect): settle the
+                    // diagnostic recording now, independent of when the save is acknowledged.
+                    if let Some(w) = r.diag.take() {
+                        self.register_diagnostic(
+                            r.run_id.clone(),
+                            r.epoch.as_ref().map(|e| e.epoch_id.clone()),
+                            w,
+                            Some(outcome),
+                        );
+                    }
                 }
                 None
             }
@@ -443,6 +456,58 @@ impl SquibEngine {
         for i in inputs {
             let _ = self.feed(g, i, now_ns);
         }
+    }
+
+    /// Finish a diagnostic recording off the engine lock and attach it to the run (its
+    /// row exists since the intent was persisted). A cancelled run recorded no timing,
+    /// and a failed start has nothing to review, so their audio is deleted.
+    fn register_diagnostic(
+        &self,
+        run_id: String,
+        epoch_id: Option<String>,
+        w: crate::diag::DiagWriter,
+        outcome: Option<Outcome>,
+    ) {
+        let store = self.store.sender();
+        std::thread::spawn(move || {
+            let rel = w.relative_path.clone();
+            let Ok(Some(o)) = w.join() else { return };
+            if matches!(outcome, Some(Outcome::Cancelled | Outcome::FailedToStart)) {
+                let _ = std::fs::remove_file(&o.path);
+                return;
+            }
+            let Ok((sha256, bytes)) = squib_domain::hash::sha256_file(&o.path) else { return };
+            let now =
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+            let rec = squib_storage::DiagnosticRecord {
+                attachment: squib_storage::AttachmentRecord {
+                    id: new_id(),
+                    run_id: Some(run_id.clone()),
+                    kind: squib_storage::DIAGNOSTIC_KIND.into(),
+                    relative_path: rel,
+                    sha256,
+                    bytes: bytes as i64,
+                    mime: "audio/wav".into(),
+                    metadata_stripped: true,
+                    created_utc_ms: now,
+                },
+                run_id,
+                epoch_id,
+                sample_rate_hz: o.sample_rate_hz,
+                first_epoch_frame: o.first_epoch_frame,
+                frames: o.frames,
+                gaps: o.gaps,
+                truncated: o.truncated,
+                dropped_frames: o.dropped_frames,
+                created_utc_ms: now,
+            };
+            let path = o.path;
+            let _ = store.send(StoreCmd::Exec(Box::new(move |repo| {
+                if repo.insert_diagnostic(&rec).is_err() {
+                    let _ = std::fs::remove_file(&path);
+                }
+            })));
+        });
     }
 
     fn cue_observations(g: &Inner) -> Vec<CueObservation> {
@@ -853,6 +918,7 @@ impl SquibEngine {
             environment_snapshot_id: None,
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: req.video,
+            diagnostic_recording: req.diagnostic_root.is_some(),
             app_build: req.app_build.clone(),
         };
         // Conditions are pinned before the run intent so the snapshot reference is valid.
@@ -875,6 +941,8 @@ impl SquibEngine {
         g.run = Some(ActiveRun {
             run_id: run_id.clone(),
             plan_item_id: req.plan_item_id.clone(),
+            diag_root: req.diagnostic_root.clone(),
+            diag: None,
             session_id,
             config: config.clone(),
             created_utc_ms: req.now_utc_ms,
@@ -946,7 +1014,36 @@ impl SquibEngine {
             }
             (g.machine.config.as_ref().and_then(|c| c.detector.clone()), WorkerMode::Run)
         };
-        let worker = DspWorker::spawn(fmt, detector, queue.clone(), mode);
+        // Opt-in diagnostic recording: only for a live run whose configuration asked for it.
+        let mut tap = None;
+        let mut diag_failed = None;
+        if g.probe.is_none()
+            && g.machine.config.as_ref().is_some_and(|c| c.diagnostic_recording)
+            && let Some(r) = g.run.as_mut()
+            && let Some(root) = r.diag_root.clone()
+        {
+            let rel = format!("diagnostics/{}.wav", r.run_id);
+            match crate::diag::start(std::path::Path::new(&root), &rel, rate, queue.max_frames()) {
+                Ok((t, w)) => {
+                    tap = Some(t);
+                    r.diag = Some(w);
+                }
+                Err(e) => {
+                    diag_failed = Some(
+                        QualityEvent::new(
+                            QualityKind::DiagnosticRecordingFailed,
+                            Severity::Warning,
+                            format!("diagnostic recording: {e}"),
+                        )
+                        .at(now_ns),
+                    )
+                }
+            }
+        }
+        if let Some(event) = diag_failed {
+            self.feed(&mut g, Input::Quality { event, now_ns }, now_ns)?;
+        }
+        let worker = DspWorker::spawn_with(fmt, detector, queue.clone(), mode, tap);
         let handle = registry::register(queue, worker.thread_handle());
         let epoch_id = new_id();
         let probing = g.probe.is_some();

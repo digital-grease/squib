@@ -7,6 +7,8 @@
 //!   against the JNI path (M0 task 6); the app does not use it.
 
 pub mod conditions;
+pub mod diag;
+pub mod diagnostic_api;
 pub mod dsp;
 pub mod engine;
 pub mod ffi;
@@ -19,6 +21,7 @@ pub mod training_api;
 pub mod video_api;
 
 pub use conditions::*;
+pub use diagnostic_api::*;
 pub use engine::SquibEngine;
 pub use ffi::*;
 pub use plans_api::*;

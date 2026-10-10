@@ -33,6 +33,7 @@ fn arm_req(drill: Option<(String, u32)>) -> ArmRequest {
         drill_version: drill.map(|d| d.1),
         plan_item_id: None,
         video: false,
+        diagnostic_root: None,
     }
 }
 
@@ -147,9 +148,9 @@ fn backup_restore_delete_and_report() {
     let id = e.add_manual_run("Club timer".into(), 10, "1.0 1.5".into(), None, None, NOW, 0, "test".into()).unwrap();
     e.add_saved_place("Secret range".into(), 40.0, -105.0, NOW).unwrap();
     let zip = d.join("backup.zip").to_string_lossy().to_string();
-    let b = e.export_backup(zip.clone(), None, "test".into(), NOW).unwrap();
+    let b = e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "test".into(), NOW).unwrap();
     assert_eq!(b.runs, 1);
-    assert!(b.contains_location && !b.encrypted);
+    assert!(b.contains_location && !b.encrypted && !b.contains_audio);
 
     let (fresh, fd) = engine("restore");
     let p = fresh.preview_import(zip.clone(), fd.to_string_lossy().into()).unwrap();

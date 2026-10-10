@@ -15,6 +15,7 @@ path = "src/main.rs"
 squib-domain.workspace = true
 squib-timing.workspace = true
 squib-mobile = { path = "../../crates/mobile-api" }
+squib-archive.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 hound.workspace = true

@@ -56,6 +56,7 @@ struct Sim {
     expected_rate: u32,
     pub views: Vec<EngineView>,
     utc: i64,
+    diag_root: Option<String>,
 }
 
 impl Sim {
@@ -77,6 +78,7 @@ impl Sim {
             expected_rate: RATE,
             views: vec![],
             utc: 1_700_000_000_000,
+            diag_root: None,
         }
     }
 
@@ -103,6 +105,7 @@ impl Sim {
             drill_version: None,
             plan_item_id: None,
             video: false,
+            diagnostic_root: self.diag_root.clone(),
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
         self.handle_effects(&v.effects.clone());
@@ -624,4 +627,137 @@ fn video_markers_come_from_run_events_and_review_edits() {
     assert!(s.eng.run_attachments(run_id.clone()).is_empty());
     let d = s.eng.delete_run(run_id).unwrap();
     assert_eq!(d.attachment_paths.len(), 2);
+}
+
+fn wav_pcm(bytes: &[u8]) -> Vec<i16> {
+    assert_eq!(&bytes[0..4], b"RIFF");
+    bytes[44..].chunks(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
+}
+
+#[test]
+fn diagnostic_recording_is_opt_in_exact_and_exports_only_with_consent() {
+    let root = std::env::temp_dir().join(format!("squib-diag-flow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let root_s = root.to_string_lossy().to_string();
+
+    // Par-only cannot record (no microphone).
+    let mut s = Sim::new("diag");
+    s.diag_root = Some(root_s.clone());
+    let req_err = s.eng.arm(
+        "bad".into(),
+        ArmRequest {
+            mode: Mode::ParOnly,
+            delay: StartDelay::Instant,
+            unit_random: 0.0,
+            pars_ms: vec![],
+            auto_stop_grace_ms: None,
+            expected_count: None,
+            threshold_db: None,
+            calibration_id: None,
+            route: None,
+            now_utc_ms: s.utc,
+            tz_offset_min: 0,
+            app_build: "test".into(),
+            expected_rate_hz: RATE,
+            drill_id: None,
+            drill_version: None,
+            plan_item_id: None,
+            video: false,
+            diagnostic_root: Some(root_s.clone()),
+        },
+        s.now(),
+    );
+    assert!(req_err.is_err(), "diagnostic recording needs a microphone mode");
+
+    s.shot_offsets_ms = vec![700.0, 1000.0, 1350.0];
+    s.arm(Mode::PhoneLive, StartDelay::Random { min_ms: 800, max_ms: 1200 }, vec![], Some(3));
+    s.settle("running");
+    s.run_ms(2000);
+    s.eng.stop("stop".into(), s.now()).unwrap();
+    let run_id = s.settle("saved").run_id.unwrap();
+    // Registration happens off the engine lock after the durable save.
+    let mut view = None;
+    for _ in 0..500 {
+        view = s.eng.run_diagnostic(run_id.clone()).unwrap();
+        if view.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let view = view.expect("recording registered");
+    assert_eq!((view.gaps, view.truncated, view.dropped_frames), (0, false, 0));
+    assert_eq!(view.markers.iter().filter(|m| m.kind == "shot").count(), 3);
+    assert!(view.markers.iter().any(|m| m.kind == "cue"), "start cue heard");
+    let wav = std::fs::read(root.join(&view.relative_path)).unwrap();
+    assert_eq!(wav.len() as i64, view.bytes);
+
+    // Export: preview lists exclusions; refused without consent.
+    let p = s.eng.diagnostic_preview(run_id.clone()).unwrap();
+    assert!(p.excludes.iter().any(|x| x.contains("Location")));
+    assert_eq!(p.accepted_events, 3);
+    let out = root.join("export.zip").to_string_lossy().to_string();
+    assert!(s.eng.export_diagnostic(run_id.clone(), root_s.clone(), out.clone(), false, "t".into(), s.utc).is_err());
+    let e = s.eng.export_diagnostic(run_id.clone(), root_s.clone(), out.clone(), true, "t".into(), s.utc).unwrap();
+    assert_eq!(e.accepted_events, 3);
+    let b = squib_archive::diagnostic::read_diagnostic(std::path::Path::new(&out)).unwrap();
+    assert_eq!(b.manifest.consent.scope, "research_only_no_redistribution");
+    assert!(!b.manifest.contains_location);
+    let text = String::from_utf8_lossy(&std::fs::read(&out).unwrap()).to_string();
+    assert!(!text.contains(&run_id), "no link back to the run");
+
+    // Success measure: replaying the exported audio reproduces the phone's detections exactly.
+    let pcm = wav_pcm(&b.wav);
+    let det = b.config.detector.clone().unwrap();
+    let rep = squib_timing::replay::replay(&pcm, b.recording.sample_rate_hz, &squib_timing::replay::ReplayOptions::new(det));
+    let off = b.recording.first_epoch_frame;
+    let got: Vec<(i64, i64)> = rep.candidates.iter().map(|c| (c.onset_frame + off, c.peak_frame + off)).collect();
+    let want: Vec<(i64, i64)> = b.labels.candidates.iter().map(|c| (c.onset_frame, c.peak_frame)).collect();
+    assert!(!want.is_empty());
+    assert_eq!(got, want, "exported recording reproduces the original candidates frame for frame");
+
+    // Problem reports never carry the recording.
+    assert!(!s.eng.diagnostic_report("d".into(), "a".into(), "v".into()).contains("diagnostics/"));
+    // Start-up cleanup keeps owned recordings and removes strays.
+    std::fs::write(root.join("diagnostics/stray.wav.partial"), b"x").unwrap();
+    std::fs::write(root.join("diagnostics/orphan.wav"), b"x").unwrap();
+    assert_eq!(s.eng.cleanup_diagnostic_partials(root_s.clone()), 2);
+    assert!(root.join(&view.relative_path).exists());
+
+    // Deleting the recording keeps the run.
+    let path = s.eng.delete_diagnostic(run_id.clone()).unwrap().unwrap();
+    assert_eq!(path, view.relative_path);
+    assert!(s.eng.run_diagnostic(run_id.clone()).unwrap().is_none());
+    assert!(s.eng.load_review(run_id).is_ok());
+}
+
+#[test]
+fn cancelled_runs_keep_no_audio_and_default_runs_record_nothing() {
+    let root = std::env::temp_dir().join(format!("squib-diag-cancel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut s = Sim::new("diag-cancel");
+    s.diag_root = Some(root.to_string_lossy().to_string());
+    s.arm(Mode::PhoneLive, StartDelay::Fixed { ms: 5000 }, vec![], None);
+    s.settle("armed");
+    s.run_ms(300);
+    s.eng.cancel("c".into(), s.now()).unwrap();
+    let run_id = s.settle("cancelled").run_id.unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(s.eng.run_diagnostic(run_id).unwrap().is_none());
+    let left: Vec<_> = std::fs::read_dir(root.join("diagnostics")).map(|d| d.flatten().collect()).unwrap_or_default();
+    assert!(left.is_empty(), "no audio file kept for a cancelled run: {left:?}");
+
+    // Default (no opt-in): nothing is written at all.
+    let root2 = std::env::temp_dir().join(format!("squib-diag-none-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root2);
+    let mut s = Sim::new("diag-none");
+    s.shot_offsets_ms = vec![700.0];
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    s.settle("running");
+    s.run_ms(1200);
+    s.eng.stop("s".into(), s.now()).unwrap();
+    let run_id = s.settle("saved").run_id.unwrap();
+    assert!(s.eng.run_diagnostic(run_id).unwrap().is_none());
+    assert!(!root2.exists());
 }
