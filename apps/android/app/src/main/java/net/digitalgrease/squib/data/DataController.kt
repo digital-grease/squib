@@ -320,6 +320,18 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos and videos."
     }
 
+    /** Import a conflicting backup as a copy: added alongside, nothing local overwritten. */
+    fun confirmImportCopy() = act {
+        val (file, _) = _pendingImport.value ?: return@act
+        _pendingImport.value = null
+        try {
+            val v = engine.importBackupCopy(file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, System.currentTimeMillis())
+            _message.value = "Imported a copy: ${v.runsNew} runs and ${v.attachmentsRestored} files added with new ids. Nothing already on this phone was changed."
+        } finally {
+            file.delete()
+        }
+    }
+
     fun cancelImport() {
         _pendingImport.value?.first?.delete()
         _pendingImport.value = null

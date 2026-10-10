@@ -132,13 +132,25 @@ fun DataScreen(
     pending?.let { (_, v) ->
         AlertDialog(
             onDismissRequest = d::cancelImport,
-            confirmButton = { TextButton(onClick = d::confirmImport, enabled = v.conflicts.isEmpty()) { Text("Restore") } },
+            confirmButton = {
+                if (v.conflicts.isEmpty()) {
+                    TextButton(onClick = d::confirmImport, modifier = Modifier.testTag("import_restore")) { Text("Restore") }
+                } else {
+                    TextButton(onClick = d::confirmImportCopy, modifier = Modifier.testTag("import_copy")) { Text("Import as a copy") }
+                }
+            },
             dismissButton = { TextButton(onClick = d::cancelImport) { Text("Cancel") } },
             text = {
                 Text(
-                    if (v.conflicts.isNotEmpty()) "This backup conflicts with ${v.conflicts.size} different records already on this phone, so it cannot be restored as-is. Nothing was changed."
-                    else "Backup checked. It adds ${v.runsNew} runs (${v.runsAlreadyPresent} already here)" +
-                        (if (v.containsLocation) " and contains saved places or location detail." else ".") + " Restore it?",
+                    if (v.conflicts.isNotEmpty()) {
+                        "This backup conflicts with ${v.conflicts.size} records on this phone: the same items were changed differently " +
+                            "(for example the same run reviewed on two phones), so it cannot be restored as-is. Nothing was changed. " +
+                            "You can import it as a copy instead: everything in it is added alongside what is here, with new ids, and nothing on this phone is overwritten. " +
+                            "Runs that are in both will then appear twice."
+                    } else {
+                        "Backup checked. It adds ${v.runsNew} runs (${v.runsAlreadyPresent} already here)" +
+                            (if (v.containsLocation) " and contains saved places or location detail." else ".") + " Restore it?"
+                    },
                 )
             },
         )
