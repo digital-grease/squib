@@ -18,6 +18,8 @@ pub struct SavedPlace {
 }
 
 pub const SETTING_WEATHER_ENABLED: &str = "weather_lookup_enabled";
+/// `auto` (NWS in the US, METAR elsewhere) or `metar` (METAR everywhere).
+pub const SETTING_WEATHER_PROVIDER: &str = "weather_provider";
 pub const SETTING_LOCATION_RETENTION: &str = "location_retention";
 pub const SETTING_UNITS: &str = "display_units";
 /// Last chosen place, stored only for user-entered or saved places, or for GPS places

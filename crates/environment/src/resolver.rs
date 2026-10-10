@@ -359,7 +359,14 @@ pub fn resolve(
             }
         }
     }
-    let nws_used = fields.iter().any(|f| f.chosen.as_ref().is_some_and(|c| c.provider == crate::nws::PROVIDER));
+    let mut attribution: Vec<String> = Vec::new();
+    for f in &fields {
+        if let Some(a) = f.chosen.as_ref().and_then(|c| crate::attribution_for(&c.provider))
+            && !attribution.iter().any(|x| x == a)
+        {
+            attribution.push(a.to_string());
+        }
+    }
     EnvironmentSnapshot {
         id: id.to_string(),
         created_utc_ms: now,
@@ -369,6 +376,6 @@ pub fn resolve(
         elevation_comparisons,
         issues,
         redacted: false,
-        attribution: if nws_used { vec![crate::nws::ATTRIBUTION.to_string()] } else { vec![] },
+        attribution,
     }
 }

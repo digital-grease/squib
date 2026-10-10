@@ -92,6 +92,8 @@ pub enum ProviderIssue {
     },
     /// The refresh deadline passed before all requests finished.
     DeadlineExceeded,
+    /// No station reported near the place recently (METAR search came back empty).
+    NoStationsNearby,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

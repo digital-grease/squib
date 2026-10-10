@@ -62,6 +62,7 @@ pub fn to_si(field: Field, value: f64, unit: &str) -> Result<(f64, Option<String
             "hPa" | "mbar" => (value * 100.0, t("Pa")),
             "kPa" => (value * 1000.0, t("Pa")),
             "inHg" | "in_Hg" => (value * 3386.389, t("Pa")),
+            "mmHg" | "mm_Hg" => (value * 133.322_387_415, t("Pa")),
             _ if is_known(u) => return Err(wrong()),
             _ => return Err(UnitError::UnknownUnit(unit.into())),
         },
@@ -96,6 +97,7 @@ fn is_known(u: &str) -> bool {
             | "mbar"
             | "kPa"
             | "inHg"
+            | "mmHg"
             | "in_Hg"
             | "m"
             | "ft"
