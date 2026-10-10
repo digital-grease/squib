@@ -12,5 +12,6 @@ pub mod envelope;
 pub mod pipeline;
 pub mod replay;
 pub mod run;
+pub mod stress;
 pub mod synth;
 pub mod video;

@@ -83,7 +83,7 @@ pub struct SynthLabels {
 /// Rise of a synthetic impulse to its peak (ms).
 pub const SHOT_RISE_MS: f64 = 0.1;
 
-fn add_shot(out: &mut [f32], rate: u32, onset: i64, peak: f32, decay_ms: f32, rng: &mut Rng) {
+pub(crate) fn add_shot(out: &mut [f32], rate: u32, onset: i64, peak: f32, decay_ms: f32, rng: &mut Rng) {
     let r = f64::from(rate);
     let rise = (SHOT_RISE_MS / 1000.0 * r).max(1.0);
     let len = (f64::from(decay_ms) / 1000.0 * r * 8.0) as i64;

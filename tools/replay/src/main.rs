@@ -252,6 +252,53 @@ fn cmd_bench(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// M5 experiment 2: every pre-declared variant on every cohort, plus verdicts.
+fn cmd_stress(args: &[String]) -> ExitCode {
+    use squib_timing::stress::{COHORTS, exploratory, run_cohort, variants, verdict};
+    let mut rows = Vec::new();
+    for (name, det) in variants().into_iter().chain(exploratory()) {
+        for c in COHORTS {
+            rows.push(run_cohort(c, name, &det));
+        }
+    }
+    let verdicts: Vec<_> = variants().iter().skip(1).map(|(n, _)| verdict(n, &rows)).collect();
+    if args.iter().any(|a| a == "--markdown") {
+        println!(
+            "| cohort | variant | recall | onset p95 ms | false/min | distractors detected (accepted) | accepted false/min |"
+        );
+        println!("|---|---|---|---|---|---|---|");
+        for r in &rows {
+            println!(
+                "| {} | {} | {:.2} | {:.3} | {:.1} | {}/{} ({}) | {:.1} |",
+                r.cohort,
+                r.variant,
+                r.recall,
+                r.onset_error_p95_ms,
+                r.false_per_min,
+                r.distractors_detected,
+                r.distractors,
+                r.distractors_accepted,
+                r.accepted_false_per_min
+            );
+        }
+        println!();
+        for v in &verdicts {
+            println!("- {}: {} ({})", v.variant, if v.go { "GO to field validation" } else { "no-go" }, v.reasons.join("; "));
+        }
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "evidence_level": "desktop-tested (synthetic stress cohorts)",
+                "results": rows,
+                "verdicts": verdicts,
+            }))
+            .unwrap()
+        );
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -262,8 +309,9 @@ fn main() -> ExitCode {
         Some("run") => cmd_run(&args[1..]),
         Some("corpus") => cmd_corpus(&PathBuf::from(args.get(1).map(String::as_str).unwrap_or("fixtures/synthetic"))),
         Some("bench") => cmd_bench(&args[1..]),
+        Some("stress") => cmd_stress(&args[1..]),
         _ => {
-            eprintln!("usage: squib-replay <gen|run|corpus|bench> ...");
+            eprintln!("usage: squib-replay <gen|run|corpus|bench|stress> ...");
             ExitCode::from(2)
         }
     }
