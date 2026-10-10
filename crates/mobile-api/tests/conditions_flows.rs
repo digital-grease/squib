@@ -19,7 +19,20 @@ fn engine(name: &str) -> Arc<SquibEngine> {
     SquibEngine::new(d.join("journal.db").to_string_lossy().into(), NOW).unwrap()
 }
 
+/// METAR captures (fixtures/metar) were observed 2026-10-10 about 04:20Z.
+const NOW_METAR: i64 = 1_791_608_400_000;
+
+fn fx_metar(name: &str) -> Vec<u8> {
+    std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/metar").join(name)).unwrap()
+}
+
 fn serve(url: &str) -> (u16, Vec<u8>) {
+    if url.starts_with("https://aviationweather.gov/api/data/metar?bbox=50.") {
+        return (200, fx_metar("bbox_london.json"));
+    }
+    if url.starts_with("https://aviationweather.gov/api/data/metar?") {
+        return (204, vec![]);
+    }
     if url.contains("/points/51.5") {
         return (404, fx("points_outside_us.json"));
     }
@@ -45,7 +58,7 @@ fn refresh(e: &SquibEngine, now: i64, offline: bool) -> usize {
     while !step.done {
         let req = queue.remove(0);
         assert_eq!(req.user_agent, "Squib/0.1 (https://github.com/digital-grease/squib)");
-        assert!(req.url.starts_with("https://api.weather.gov/"));
+        assert!(req.url.starts_with("https://api.weather.gov/") || req.url.starts_with("https://aviationweather.gov/api/data/"));
         n += 1;
         let resp = if offline {
             HttpResponseFfi {
@@ -217,10 +230,35 @@ fn offline_shows_cached_values_with_original_age_and_unsupported_is_explained() 
     refresh(&e, later, true);
     assert_eq!(field(&e.conditions_view(later), "temperature").origin, "unavailable");
 
+    // Outside the US, Auto continues with METAR airport reports after NWS declines.
     e.set_place(PlaceInput { lat: 51.5007, lon: -0.1246, label: None, source: "manual".into() }).unwrap();
-    refresh(&e, NOW, false);
-    let v = e.conditions_view(NOW);
-    assert!(v.issues[0].contains("no data for this place"));
+    assert_eq!(refresh(&e, NOW_METAR, false), 2, "one NWS points request, then one METAR search");
+    let v = e.conditions_view(NOW_METAR);
+    assert_eq!(v.weather_provider, "auto");
+    assert!(!v.issues.iter().any(|i| i.contains("no data for this place")), "{:?}", v.issues);
+    let t = field(&v, "temperature");
+    assert_eq!(t.origin, "nearby_observation");
+    assert!(v.attribution.iter().any(|a| a.contains("aviationweather.gov")));
+    assert_eq!(field(&v, "local_pressure").origin, "unavailable", "airport QNH is never local pressure");
+    assert_eq!(field(&v, "altimeter_setting").origin, "nearby_observation");
+}
+
+#[test]
+fn metar_everywhere_skips_nws_and_reports_empty_areas() {
+    let e = engine("metar-only");
+    e.set_weather_enabled(true).unwrap();
+    assert!(e.set_weather_provider("other".into()).is_err());
+    e.set_weather_provider("metar".into()).unwrap();
+    boulder(&e);
+    let step = e.conditions_refresh(NOW_METAR).unwrap();
+    assert_eq!(step.requests.len(), 1);
+    assert!(step.requests[0].url.starts_with("https://aviationweather.gov/api/data/metar?bbox=39.02,"));
+    assert_eq!(step.requests[0].accept, "application/json");
+    refresh(&e, NOW_METAR, false);
+    let v = e.conditions_view(NOW_METAR);
+    assert_eq!(v.weather_provider, "metar");
+    assert!(v.issues.iter().any(|i| i.contains("No airport weather station")), "{:?}", v.issues);
+    assert_eq!(field(&v, "temperature").origin, "unavailable");
 }
 
 #[test]

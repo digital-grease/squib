@@ -121,8 +121,24 @@ private fun LookupCard(view: ConditionsView, c: ConditionsController) {
                 Switch(checked = view.weatherEnabled, onCheckedChange = c::setWeatherEnabled, modifier = Modifier.testTag("weather_switch"))
             }
             Text(
-                "Sends your place, rounded to about 1 km, to the US National Weather Service. US locations only. " +
-                    "Off by default; manual values work without it.",
+                "Sends your place, rounded to about 1 km, to the US National Weather Service, or for places it does not cover, to the " +
+                    "NOAA Aviation Weather Center for nearby airport reports (METAR). Off by default; manual values work without it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text("Weather source", modifier = Modifier.padding(top = 8.dp))
+            FlowRow {
+                androidx.compose.material3.FilterChip(
+                    selected = view.weatherProvider != "metar", onClick = { c.setWeatherProvider("auto") },
+                    label = { Text("Automatic") }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("provider_auto"),
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = view.weatherProvider == "metar", onClick = { c.setWeatherProvider("metar") },
+                    label = { Text("Airport reports everywhere") }, modifier = Modifier.heightIn(min = 48.dp).testTag("provider_metar"),
+                )
+            }
+            Text(
+                "Automatic uses the National Weather Service in the US and airport reports elsewhere. Airports can be tens of " +
+                    "kilometres away and at a different elevation; each value shows its station and age.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

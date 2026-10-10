@@ -19,21 +19,21 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 - **Rounds and photos.** Confirm how many rounds you fired (with an optional cost per round), and attach target photos.
 - **Your data stays yours.** Save a full private backup and restore it on any phone, export a spreadsheet (CSV), or share a single result without location details. You can delete one run or everything.
 - **Setup help.** A sensitivity check measures how loud your surroundings are, and a cue test confirms the microphone can hear the start beep before you rely on it.
-- **Range conditions.** Temperature, humidity, wind, and pressure for your range, from nearby US weather stations, the phone's barometer if it has one, or values you enter. Every value shows where it came from and how old it is, and each run keeps a copy of the conditions when it started.
+- **Range conditions.** Temperature, humidity, wind, and pressure for your range, from nearby weather stations (US National Weather Service stations, or airport reports anywhere in the world), the phone's barometer if it has one, or values you enter. Every value shows where it came from and how old it is, and each run keeps a copy of the conditions when it started.
 
 ## Current status
 
 Squib is an early prototype and is not yet available in any app store.
 
 - The par timer works.
-- Range conditions work with US weather stations (National Weather Service). Outside the US, enter values by hand.
+- Range conditions work with US weather stations (National Weather Service) and, anywhere else, with nearby airport reports (METAR). Where no station reports nearby, enter values by hand.
 - Shot timing works in testing on a computer and in the Android emulator, but it has **not yet been tested on a real phone at a real range**. Treat its times as experimental until that testing is done.
 - Squib does not claim any particular accuracy. It labels uncertain results, interrupted runs, and setups it cannot vouch for instead of guessing.
 
 ## Privacy
 
 - No account, no ads, and no tracking.
-- The only internet use is weather lookup, which is off until you turn it on. It sends your place, rounded to about 1 km, to the US National Weather Service. Nothing else is ever sent, and audio never leaves the phone.
+- The only internet use is weather lookup, which is off until you turn it on. It sends your place, rounded to about 1 km, to the US National Weather Service, or for places it does not cover (or if you choose airport reports everywhere), to the US NOAA Aviation Weather Center. Nothing else is ever sent, and audio never leaves the phone.
 - Squib never records or saves audio. Video clips, when you turn them on, have no sound track. Sound is analyzed in memory and discarded; only shot times and a coarse loudness outline are kept.
 - The microphone is requested only when you choose shot timing, sensitivity setup, or the cue test. The camera is requested only when you arm a run with video turned on. The par timer never asks for it. Location is requested only when you tap "Use my location"; typing coordinates or picking a saved place works without it.
 - By default, runs keep weather values but not your coordinates, station names, or elevation. You can opt in to keeping full detail.
@@ -57,7 +57,7 @@ Squib is free software, licensed under the [GNU Affero General Public License v3
 
 A shared Rust core holds all timing logic, shot detection, the run state machine, and the SQLite journal. The Android app (Kotlin, Jetpack Compose) handles permissions, audio capture and playback, and the screens. Control calls cross into Rust through UniFFI; audio samples cross through a small JNI bridge into a bounded, preallocated queue processed on its own thread.
 
-Range conditions are resolved field by field in Rust: a manual value wins, then a fresh phone sensor, then the best-ranked fresh nearby station, otherwise Unavailable. Pressure kinds are separate fields, so a station's altimeter setting or sea-level pressure can never stand in for the actual pressure where you are (NWS observations do not include station pressure). Ages always come from observation time, not fetch time. The Android app performs the HTTP requests the core plans and validates; snapshots saved with runs are redacted unless precise retention is enabled.
+Range conditions are resolved field by field in Rust: a manual value wins, then a fresh phone sensor, then the best-ranked fresh nearby station, otherwise Unavailable. Pressure kinds are separate fields, so a station's altimeter setting or sea-level pressure can never stand in for the actual pressure where you are (NWS observations do not include station pressure). Airport METAR reports are parsed from their raw text rather than the API's rounded convenience fields, keeping the units each report states; humidity from METAR is derived from temperature and dew point and labelled as derived, and a QFE remark (actual pressure at the airport) stays a remote-station value. Ages always come from observation time, not fetch time. The Android app performs the HTTP requests the core plans and validates; snapshots saved with runs are redacted unless precise retention is enabled.
 
 Timing comes from audio sample positions, not from when the app happens to receive audio. When a run's start beep and shots are captured in the same recording, the times between them are exact sample counts. Raw audio exists only in short-lived memory buffers.
 
@@ -68,7 +68,7 @@ Video clips (experimental) are recorded with Camera2 into a surface encoder with
 ```text
 crates/domain/            run config, states, quality events, candidates, revisions, results
 crates/timing/            clock mapping, capture integrity, cue matching, detector, run state machine, replay
-crates/environment/       range conditions: measurement candidates, NWS adapter, resolver, privacy redaction
+crates/environment/       range conditions: measurement candidates, NWS and METAR adapters, resolver, privacy redaction
 crates/training/          drill recipes, generic practice scoring, analytics, manual strings, round counts
 crates/storage/           SQLite repository, migrations, recovery, day plans and checklists
 crates/archive/           private backup/restore, CSV export, redacted result sharing
@@ -78,6 +78,7 @@ tools/uniffi-bindgen/     pinned binding generator
 apps/android/             Kotlin + Jetpack Compose app
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
 fixtures/nws/             captured api.weather.gov responses (public domain) for adapter tests
+fixtures/metar/           captured aviationweather.gov METAR responses (public domain) for adapter tests
 scripts/                  Android core build, emulator UI driver
 .github/                  CI workflow and issue forms (used by the in-app problem report)
 ```

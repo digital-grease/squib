@@ -4,13 +4,16 @@
 
 use std::sync::MutexGuard;
 
+use squib_environment::metar::{self, MetarRefresh};
 use squib_environment::nws::{self, CachedDoc, DocCache, HttpResponse, NwsRefresh, Step, TransportError};
 use squib_environment::privacy::LocationRetention;
 use squib_environment::{
     ElevationComparison, EnvironmentSnapshot, Field, MeasurementCandidate, Origin, Override, ReferencePlace, ResolvedField,
     ResolverPolicy, Value, local, resolve,
 };
-use squib_storage::{Repository, SETTING_LAST_PLACE, SETTING_LOCATION_RETENTION, SETTING_WEATHER_ENABLED, SavedPlace};
+use squib_storage::{
+    Repository, SETTING_LAST_PLACE, SETTING_LOCATION_RETENTION, SETTING_WEATHER_ENABLED, SETTING_WEATHER_PROVIDER, SavedPlace,
+};
 
 use crate::engine::SquibEngine;
 use crate::ffi::SquibError;
@@ -19,13 +22,28 @@ use crate::store::StoreActor;
 /// Total time budget for one refresh.
 pub const REFRESH_DEADLINE_MS: i64 = 20_000;
 
+/// A refresh in progress with one provider.
+pub enum Refresh {
+    Nws(NwsRefresh),
+    Metar(MetarRefresh),
+}
+
+impl Refresh {
+    fn provider(&self) -> &'static str {
+        match self {
+            Refresh::Nws(_) => nws::PROVIDER,
+            Refresh::Metar(_) => metar::PROVIDER,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct CondState {
     pub place: Option<ReferencePlace>,
     pub device: Vec<MeasurementCandidate>,
     pub remote: Vec<MeasurementCandidate>,
     pub issues: Vec<nws::ProviderIssue>,
-    pub refresh: Option<NwsRefresh>,
+    pub refresh: Option<Refresh>,
     pub last_refresh_utc_ms: Option<i64>,
     pub used_cache: bool,
     pub allow_older: bool,
@@ -147,6 +165,8 @@ pub struct ConditionsView {
     pub allow_older: bool,
     /// The snapshot is redacted (history view of a run).
     pub redacted: bool,
+    /// `auto` or `metar`; see `set_weather_provider`.
+    pub weather_provider: String,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -272,7 +292,11 @@ fn issue_text(i: &nws::ProviderIssue) -> String {
     use nws::ProviderIssue::*;
     match i {
         UnsupportedLocation => {
-            "The National Weather Service has no data for this place (outside the US?). Enter values manually.".into()
+            "The National Weather Service has no data for this place (outside the US?). Choose worldwide airport reports or enter values manually."
+                .into()
+        }
+        NoStationsNearby => {
+            "No airport weather station reported within about 110 km in the last 3 hours. Enter values manually.".into()
         }
         Transport { detail, .. } => format!("Could not reach the weather service ({detail}). Showing saved data if any."),
         Http { status, url_kind } => format!("Weather service error {status} ({url_kind})."),
@@ -295,29 +319,38 @@ pub fn conditions_view_of(s: &EnvironmentSnapshot, now_utc_ms: i64) -> Vec<Field
 struct EngineCache<'a> {
     read: &'a Repository,
     store: &'a StoreActor,
+    provider: &'static str,
 }
 
 impl DocCache for EngineCache<'_> {
     fn get(&self, key: &str) -> Option<CachedDoc> {
-        self.read.cache_get(nws::PROVIDER, key).ok().flatten()
+        self.read.cache_get(self.provider, key).ok().flatten()
     }
     fn put(&mut self, doc: CachedDoc) {
-        let _ = self.store.exec(move |repo| repo.cache_put(nws::PROVIDER, &doc));
+        let provider = self.provider;
+        let _ = self.store.exec(move |repo| repo.cache_put(provider, &doc));
     }
 }
 
-fn to_step(step: Step, st: &mut CondState, now_utc_ms: i64) -> ConditionsStep {
+fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i64) -> ConditionsStep {
+    let (accept, max_body, allowed): (&str, usize, fn(&str) -> bool) = if provider == metar::PROVIDER {
+        (metar::ACCEPT, metar::MAX_BODY_BYTES, metar::url_allowed)
+    } else {
+        (nws::ACCEPT, nws::MAX_BODY_BYTES, nws::url_allowed)
+    };
     match step {
         Step::Fetch(reqs) => ConditionsStep {
             requests: reqs
                 .into_iter()
+                // Defence in depth: planners only build allowed URLs.
+                .filter(|r| allowed(&r.url))
                 .map(|r| HttpRequestFfi {
                     id: r.id,
                     url: r.url,
                     user_agent: nws::USER_AGENT.into(),
-                    accept: nws::ACCEPT.into(),
+                    accept: accept.into(),
                     if_none_match: r.if_none_match,
-                    max_body_bytes: nws::MAX_BODY_BYTES as u32,
+                    max_body_bytes: max_body as u32,
                 })
                 .collect(),
             done: false,
@@ -334,6 +367,15 @@ fn to_step(step: Step, st: &mut CondState, now_utc_ms: i64) -> ConditionsStep {
 }
 
 impl SquibEngine {
+    pub(crate) fn weather_provider(&self) -> String {
+        self.read_repo()
+            .get_setting(SETTING_WEATHER_PROVIDER)
+            .ok()
+            .flatten()
+            .filter(|p| p == "metar")
+            .unwrap_or_else(|| "auto".into())
+    }
+
     fn settings_bool(&self, key: &str) -> bool {
         self.read_repo().get_setting(key).ok().flatten().as_deref() == Some("true")
     }
@@ -418,7 +460,23 @@ impl SquibEngine {
             refreshing: st.refresh.is_some(),
             allow_older: st.allow_older,
             redacted: false,
+            weather_provider: self.weather_provider(),
         }
+    }
+
+    /// `auto`: the National Weather Service where it has data, METAR airport reports
+    /// elsewhere. `metar`: METAR everywhere. Both receive only the rounded place.
+    pub fn set_weather_provider(&self, provider: String) -> Result<(), SquibError> {
+        if !matches!(provider.as_str(), "auto" | "metar") {
+            return Err(SquibError::Invalid("weather provider must be auto or metar".into()));
+        }
+        self.store_actor().exec(move |repo| repo.set_setting(SETTING_WEATHER_PROVIDER, &provider))?;
+        let mut st = self.cond();
+        st.refresh = None;
+        st.remote.clear();
+        st.issues.clear();
+        st.last_refresh_utc_ms = None;
+        Ok(())
     }
 
     /// Weather lookup sends the (rounded) place to the provider: off until enabled.
@@ -490,13 +548,22 @@ impl SquibEngine {
         }
         let mut st = self.cond();
         let Some(place) = st.place.clone() else { return Err(SquibError::Rejected("choose a place first".into())) };
+        let metar_only = self.weather_provider() == "metar";
         let read = self.read_repo();
-        let cache = EngineCache { read: &read, store: self.store_actor() };
-        let Some((r, step)) = NwsRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache) else {
+        let started = if metar_only {
+            let cache = EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER };
+            MetarRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache)
+                .map(|(r, s)| (Refresh::Metar(r), s))
+        } else {
+            let cache = EngineCache { read: &read, store: self.store_actor(), provider: nws::PROVIDER };
+            NwsRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache).map(|(r, s)| (Refresh::Nws(r), s))
+        };
+        let Some((r, step)) = started else {
             return Err(SquibError::Invalid("invalid place".into()));
         };
+        let provider = r.provider();
         st.refresh = Some(r);
-        Ok(to_step(step, &mut st, now_utc_ms))
+        Ok(to_step(step, provider, &mut st, now_utc_ms))
     }
 
     pub fn conditions_response(&self, resp: HttpResponseFfi, now_utc_ms: i64) -> ConditionsStep {
@@ -519,13 +586,32 @@ impl SquibEngine {
             error,
         };
         let read = self.read_repo();
-        let mut cache = EngineCache { read: &read, store: self.store_actor() };
-        let step = r.on_response(resp, now_utc_ms, &mut cache);
+        let provider = r.provider();
+        let mut cache = EngineCache { read: &read, store: self.store_actor(), provider };
+        let step = match &mut r {
+            Refresh::Nws(n) => n.on_response(resp, now_utc_ms, &mut cache),
+            Refresh::Metar(m) => m.on_response(resp, now_utc_ms, &mut cache),
+        };
+        // Auto: where NWS has no data (outside the US), continue with METAR reports.
+        if let (Refresh::Nws(n), Step::Done(res)) = (&r, &step)
+            && res.issues.contains(&nws::ProviderIssue::UnsupportedLocation)
+            && let Some((m, next)) = MetarRefresh::start(
+                n.lookup().0,
+                n.lookup().1,
+                now_utc_ms,
+                REFRESH_DEADLINE_MS,
+                &EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER },
+            )
+        {
+            drop(read);
+            st.refresh = Some(Refresh::Metar(m));
+            return to_step(next, metar::PROVIDER, &mut st, now_utc_ms);
+        }
         drop(read);
         if matches!(step, Step::Fetch(_)) {
             st.refresh = Some(r);
         }
-        to_step(step, &mut st, now_utc_ms)
+        to_step(step, provider, &mut st, now_utc_ms)
     }
 
     /// Manual value for one field, in SI. `entered_*` preserves what the user typed.
@@ -614,6 +700,7 @@ impl SquibEngine {
             refreshing: false,
             allow_older: false,
             redacted: s.redacted,
+            weather_provider: String::new(),
         }))
     }
 }

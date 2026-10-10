@@ -84,6 +84,8 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
 
     fun setWeatherEnabled(on: Boolean) = act(null) { engine.setWeatherEnabled(on) }
 
+    fun setWeatherProvider(p: String) = act(null) { engine.setWeatherProvider(p) }
+
     fun setPreciseRetention(on: Boolean) = act(null) { engine.setPreciseRetention(on) }
 
     fun setAllowOlder(on: Boolean) = act(null) { engine.setAllowOlder(on) }
