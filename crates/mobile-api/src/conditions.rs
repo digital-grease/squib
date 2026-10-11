@@ -193,6 +193,24 @@ pub struct ConditionsView {
     pub redacted: bool,
     /// `auto` or `metar`; see `set_weather_provider`.
     pub weather_provider: String,
+    pub derived: Option<DerivedView>,
+    /// Why there is no derived value (missing inputs or out of range).
+    pub derived_unavailable: Option<String>,
+}
+
+/// Air density and density altitude derived from the resolved inputs (plan phase 3.4).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DerivedView {
+    /// Named, versioned method (`moist-ideal-ae96-isa-v1`).
+    pub method: String,
+    pub density_kg_m3: f64,
+    /// ISA geopotential heights, m. Density altitude is a property of the air, not a height.
+    pub density_altitude_m: f64,
+    pub pressure_altitude_m: f64,
+    pub vapour_pressure_pa: f64,
+    /// Each input with where it came from, e.g. "Pressure here (actual): Phone barometer".
+    pub inputs: Vec<String>,
+    pub uses_older_data: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -341,6 +359,40 @@ fn issue_text(i: &nws::ProviderIssue) -> String {
         DeadlineExceeded => "Weather refresh took too long; partial results shown.".into(),
         TerrainNotCovered => "USGS terrain data does not cover this place (US only).".into(),
         TerrainNoData => "USGS terrain data has no ground height here (open water?).".into(),
+    }
+}
+
+/// Derived metrics for a snapshot, or the reason there are none.
+pub fn derived_of(s: &EnvironmentSnapshot) -> (Option<DerivedView>, Option<String>) {
+    use squib_environment::derived::{self, NotDerived};
+    match derived::derive(s) {
+        Ok(d) => (
+            Some(DerivedView {
+                method: d.method.into(),
+                density_kg_m3: d.density_kg_m3,
+                density_altitude_m: d.density_altitude_m,
+                pressure_altitude_m: d.pressure_altitude_m,
+                vapour_pressure_pa: d.vapour_pressure_pa,
+                inputs: d
+                    .inputs
+                    .iter()
+                    .map(|i| {
+                        let src = s
+                            .field(i.field)
+                            .and_then(|f| f.chosen.as_ref())
+                            .map(source_label)
+                            .unwrap_or_else(|| origin_str(i.origin));
+                        format!("{}: {src}", field_label(i.field))
+                    })
+                    .collect(),
+                uses_older_data: d.uses_older_data,
+            }),
+            None,
+        ),
+        Err(NotDerived::Missing(f)) => {
+            (None, Some(format!("Needs {}.", f.iter().map(|x| field_label(*x).to_lowercase()).collect::<Vec<_>>().join(", "))))
+        }
+        Err(NotDerived::OutOfRange(why)) => (None, Some(format!("Not calculated: {why}."))),
     }
 }
 
@@ -508,6 +560,7 @@ impl SquibEngine {
     pub fn conditions_view(&self, now_utc_ms: i64) -> ConditionsView {
         let st = self.cond();
         let snap = self.resolve_now(&st, now_utc_ms);
+        let (derived, derived_unavailable) = derived_of(&snap);
         ConditionsView {
             weather_enabled: self.settings_bool(SETTING_WEATHER_ENABLED),
             terrain_enabled: self.settings_bool(SETTING_TERRAIN_ENABLED),
@@ -530,6 +583,8 @@ impl SquibEngine {
             allow_older: st.allow_older,
             redacted: false,
             weather_provider: self.weather_provider(),
+            derived,
+            derived_unavailable,
         }
     }
 
@@ -816,29 +871,34 @@ impl SquibEngine {
     /// Conditions pinned to a run, as stored (redacted unless precise retention was on).
     pub fn run_conditions(&self, run_id: String) -> Result<Option<ConditionsView>, SquibError> {
         let d = self.read_repo().load_run(&run_id)?;
-        Ok(d.environment.map(|s| ConditionsView {
-            weather_enabled: true,
-            terrain_enabled: false,
-            terrain_needs_place: false,
-            precise_retention: !s.redacted,
-            place: s.reference.as_ref().map(|p| PlaceView {
-                lat: p.lat,
-                lon: p.lon,
-                label: p.label.clone(),
-                source: p.source.clone(),
-            }),
-            // Ages are shown as of when the snapshot was pinned.
-            fields: conditions_view_of(&s, s.created_utc_ms),
-            elevation_notes: s.elevation_comparisons.iter().map(elevation_note).collect(),
-            issues: s.issues.iter().map(issue_text).collect(),
-            attribution: s.attribution.clone(),
-            last_refresh_utc_ms: Some(s.created_utc_ms),
-            used_cache: false,
-            retries: 0,
-            refreshing: false,
-            allow_older: false,
-            redacted: s.redacted,
-            weather_provider: String::new(),
+        Ok(d.environment.map(|s| {
+            let (derived, derived_unavailable) = derived_of(&s);
+            ConditionsView {
+                weather_enabled: true,
+                terrain_enabled: false,
+                terrain_needs_place: false,
+                precise_retention: !s.redacted,
+                place: s.reference.as_ref().map(|p| PlaceView {
+                    lat: p.lat,
+                    lon: p.lon,
+                    label: p.label.clone(),
+                    source: p.source.clone(),
+                }),
+                // Ages are shown as of when the snapshot was pinned.
+                fields: conditions_view_of(&s, s.created_utc_ms),
+                elevation_notes: s.elevation_comparisons.iter().map(elevation_note).collect(),
+                issues: s.issues.iter().map(issue_text).collect(),
+                attribution: s.attribution.clone(),
+                last_refresh_utc_ms: Some(s.created_utc_ms),
+                used_cache: false,
+                retries: 0,
+                refreshing: false,
+                allow_older: false,
+                redacted: s.redacted,
+                weather_provider: String::new(),
+                derived,
+                derived_unavailable,
+            }
         }))
     }
 }

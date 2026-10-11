@@ -476,3 +476,25 @@ fn terrain_alone_works_without_weather_lookup() {
     e.set_terrain_enabled(false).unwrap();
     assert!(e.conditions_refresh(NOW).is_err(), "both lookups off");
 }
+
+#[test]
+fn derived_metrics_need_local_pressure_and_name_their_inputs() {
+    let e = engine("derived");
+    e.set_weather_enabled(true).unwrap();
+    boulder(&e);
+    refresh(&e, NOW, false);
+    // Stations give temperature and humidity but never pressure here.
+    let v = e.conditions_view(NOW);
+    assert!(v.derived.is_none());
+    assert_eq!(v.derived_unavailable.as_deref(), Some("Needs pressure here (actual)."));
+    // With actual pressure entered (an altimeter setting would not count), it derives.
+    e.set_override("local_pressure".into(), 83_500.0, 835.0, "hPa".into(), NOW).unwrap();
+    let v = e.conditions_view(NOW);
+    let d = v.derived.expect("derived");
+    assert_eq!(d.method, "moist-ideal-ae96-isa-v1");
+    assert!(d.density_kg_m3 > 0.8 && d.density_kg_m3 < 1.1, "{}", d.density_kg_m3);
+    assert!(d.density_altitude_m > 1_000.0 && d.density_altitude_m < 3_500.0, "{}", d.density_altitude_m);
+    assert!(d.inputs.iter().any(|i| i.starts_with("Pressure here (actual): Your entry")), "{:?}", d.inputs);
+    assert!(d.inputs.iter().any(|i| i.starts_with("Temperature: K")), "station named: {:?}", d.inputs);
+    assert!(v.derived_unavailable.is_none());
+}

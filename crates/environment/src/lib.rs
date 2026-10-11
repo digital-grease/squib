@@ -5,6 +5,7 @@
 //! validates what came back, and resolves each field with visible provenance.
 
 pub mod candidate;
+pub mod derived;
 pub mod local;
 pub mod metar;
 pub mod nws;
