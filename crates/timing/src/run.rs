@@ -134,6 +134,12 @@ pub enum Input {
         cmd_id: String,
         now_ns: i64,
     },
+    /// The engine's classification now has this many accepted shots for the running
+    /// string. Used only by `StopPolicy::AfterCount`; repeated reports are harmless.
+    AcceptedShots {
+        count: u32,
+        now_ns: i64,
+    },
     /// DSP processed through the stop cutoff (`complete`) or timed out.
     Drained {
         complete: bool,
@@ -473,6 +479,17 @@ impl RunMachine {
                 Phase::Cancelled => {}
                 _ => return reject("cancel is only available before the start cue; use Stop"),
             },
+            Input::AcceptedShots { count, now_ns } => {
+                // Schedule the automatic stop once, `grace_ms` after the target is first
+                // reached. Earlier candidates are never removed; shots inside the grace count.
+                if self.phase == Phase::Running
+                    && self.auto_stop_ns.is_none()
+                    && let Some(StopPolicy::AfterCount { count: target, grace_ms }) = self.config.as_ref().map(|c| c.stop_policy)
+                    && count >= target
+                {
+                    self.auto_stop_ns = Some(now_ns + i64::from(grace_ms) * NS_PER_MS);
+                }
+            }
             Input::Stop { cmd_id, now_ns } => {
                 if self.stop_cmd.as_deref() == Some(cmd_id.as_str()) {
                     return Ok(fx);
@@ -894,8 +911,40 @@ mod tests {
     }
 
     fn live_awaiting() -> RunMachine {
+        live_awaiting_with(StopPolicy::Manual)
+    }
+
+    #[test]
+    fn auto_stop_after_accepted_count_waits_for_the_target_then_the_grace() {
+        let mut m = live_awaiting_with(StopPolicy::AfterCount { count: 3, grace_ms: 1000 });
+        // Reports before the start reference are ignored.
+        m.handle(Input::AcceptedShots { count: 5, now_ns: 1_700 * MS }).unwrap();
+        m.handle(Input::CueResolved { cue_id: 0, onset_frame: 77_000, onset_ns: Some(1_625 * MS), now_ns: 1_900 * MS }).unwrap();
+        assert_eq!(m.phase, Phase::Running);
+        m.handle(Input::AcceptedShots { count: 2, now_ns: 2_500 * MS }).unwrap();
+        let stops = |fx: &[Effect]| fx.iter().any(|e| matches!(e, Effect::BeginDrain { .. }));
+        assert!(!stops(&m.handle(Input::Tick { now_ns: 9_000 * MS }).unwrap()), "below the target: no stop");
+        m.handle(Input::AcceptedShots { count: 3, now_ns: 9_100 * MS }).unwrap();
+        // Later reports do not push the stop back.
+        m.handle(Input::AcceptedShots { count: 4, now_ns: 9_900 * MS }).unwrap();
+        assert!(!stops(&m.handle(Input::Tick { now_ns: 10_000 * MS }).unwrap()), "grace still running");
+        let fx = m.handle(Input::Tick { now_ns: 10_100 * MS }).unwrap();
+        assert_eq!(fx, vec![Effect::BeginDrain { cutoff_ns: 10_100 * MS }], "stops one grace after the target");
+        assert_eq!(m.phase, Phase::Completing);
+    }
+
+    #[test]
+    fn count_auto_stop_needs_a_microphone_mode_and_a_sane_count() {
+        let par = cfg(SourceMode::ParOnly, 1000, vec![], StopPolicy::AfterCount { count: 3, grace_ms: 1000 });
+        assert_eq!(par.validate(), Err(squib_domain::ConfigError::AutoStopCountWithoutMicrophone));
+        let mut live = cfg(SourceMode::PhoneLive, 1000, vec![], StopPolicy::AfterCount { count: 0, grace_ms: 1000 });
+        live.detector = Some(squib_domain::DetectorConfig::default());
+        assert_eq!(live.validate(), Err(squib_domain::ConfigError::AutoStopCountInvalid(0)));
+    }
+
+    fn live_awaiting_with(stop: StopPolicy) -> RunMachine {
         let mut m = RunMachine::new();
-        arm(&mut m, cfg(SourceMode::PhoneLive, 1000, vec![1000], StopPolicy::Manual), 0);
+        arm(&mut m, cfg(SourceMode::PhoneLive, 1000, vec![1000], stop), 0);
         let fx = m.handle(Input::IntentPersisted { ok: true, error: None, now_ns: 10 * MS }).unwrap();
         assert!(fx.contains(&Effect::StartCapture));
         assert_eq!(m.phase, Phase::Preparing, "not armed until capture and baseline are ready");

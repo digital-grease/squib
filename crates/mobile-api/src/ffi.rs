@@ -111,6 +111,8 @@ pub struct ArmRequest {
     pub pars_ms: Vec<u32>,
     /// `Some` enables labelled auto stop after the last par.
     pub auto_stop_grace_ms: Option<u32>,
+    /// `Some(n)` (live mode): stop about a second after the n-th accepted shot.
+    pub auto_stop_count: Option<u32>,
     /// Review hint only.
     pub expected_count: Option<u32>,
     /// Manual sensitivity override (dB above floor). `None`: calibration or default.

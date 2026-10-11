@@ -119,6 +119,10 @@ pub enum StopPolicy {
     Manual,
     /// Stop automatically `grace_ms` after the last par cue. Labelled in the UI.
     AfterLastPar { grace_ms: u32 },
+    /// Stop automatically `grace_ms` after `count` accepted shots have been detected
+    /// (microphone modes only; docs/squib/04). Labelled in the UI; never removes earlier
+    /// candidates, and later shots inside the grace are still captured.
+    AfterCount { count: u32, grace_ms: u32 },
 }
 
 /// Transparent detector configuration. Versioned and hashed; frozen for a run.
@@ -260,6 +264,17 @@ impl RunConfig {
                 return Err(ConfigError::AutoStopGraceTooLong(grace_ms));
             }
         }
+        if let StopPolicy::AfterCount { count, grace_ms } = self.stop_policy {
+            if !self.source_mode.needs_microphone() {
+                return Err(ConfigError::AutoStopCountWithoutMicrophone);
+            }
+            if !(1..=1000).contains(&count) {
+                return Err(ConfigError::AutoStopCountInvalid(count));
+            }
+            if grace_ms > AUTO_STOP_GRACE_MAX_MS {
+                return Err(ConfigError::AutoStopGraceTooLong(grace_ms));
+            }
+        }
         if let Some(n) = self.expected_count
             && (n == 0 || n > 1000)
         {
@@ -332,6 +347,10 @@ pub enum ConfigError {
     ParCuesOverlap { first_ms: u32, second_ms: u32 },
     #[error("auto stop after last par requires at least one par")]
     AutoStopWithoutPar,
+    #[error("auto stop after a shot count needs shot detection (a microphone mode)")]
+    AutoStopCountWithoutMicrophone,
+    #[error("auto stop shot count {0} is outside 1..=1000")]
+    AutoStopCountInvalid(u32),
     #[error("auto stop grace {0} ms exceeds the maximum")]
     AutoStopGraceTooLong(u32),
     #[error("expected count {0} is outside 1..=1000")]

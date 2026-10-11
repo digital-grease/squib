@@ -33,6 +33,8 @@ pub const BATCH_WINDOW_NS: i64 = 250 * NS_PER_MS;
 pub const BASELINE_MS: i64 = 500;
 /// Capture queue target duration (docs/squib/04: roughly 250 ms).
 pub const QUEUE_MS: u32 = 250;
+/// Grace after the n-th accepted shot before a count-based automatic stop.
+pub const AUTO_STOP_COUNT_GRACE_MS: u32 = 1000;
 /// Detector emission latency plus margin; drain waits this far past the cutoff.
 pub const DRAIN_MARGIN_MS: i64 = 45;
 const CALIBRATION_AMBIENT_S: i64 = 3;
@@ -898,9 +900,13 @@ impl SquibEngine {
             delay_policy: policy,
             selected_delay_ms: policy.select(req.unit_random),
             pars_ms: req.pars_ms.clone(),
-            stop_policy: match req.auto_stop_grace_ms {
-                Some(grace_ms) => StopPolicy::AfterLastPar { grace_ms },
-                None => StopPolicy::Manual,
+            stop_policy: match (req.auto_stop_count, req.auto_stop_grace_ms) {
+                (Some(_), Some(_)) => {
+                    return Err(rejected("choose one automatic stop: after the last par or after a shot count"));
+                }
+                (Some(count), None) => StopPolicy::AfterCount { count, grace_ms: AUTO_STOP_COUNT_GRACE_MS },
+                (None, Some(grace_ms)) => StopPolicy::AfterLastPar { grace_ms },
+                (None, None) => StopPolicy::Manual,
             },
             expected_count: req.expected_count,
             start_cue_template: CueKind::Start.template_version().into(),
@@ -1172,6 +1178,14 @@ impl SquibEngine {
         self.drain_worker(&mut g, now_ns);
         self.drain_store(&mut g, now_ns);
         if g.probe.is_none() {
+            // Count-based auto stop: report suggested-accepted shots of the running string.
+            if g.machine.phase == Phase::Running
+                && g.machine.config.as_ref().is_some_and(|c| matches!(c.stop_policy, StopPolicy::AfterCount { .. }))
+            {
+                let count =
+                    Self::classify_run(&g).iter().filter(|c| c.classification == DetectorSuggestion::SuggestedAccepted).count();
+                let _ = self.feed(&mut g, Input::AcceptedShots { count: count as u32, now_ns }, now_ns);
+            }
             let _ = self.feed(&mut g, Input::Tick { now_ns }, now_ns);
         }
         self.tick_probe(&mut g, now_ns);

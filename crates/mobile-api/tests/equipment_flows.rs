@@ -21,6 +21,7 @@ fn arm_req() -> ArmRequest {
         unit_random: 0.0,
         pars_ms: vec![],
         auto_stop_grace_ms: None,
+        auto_stop_count: None,
         expected_count: None,
         threshold_db: None,
         calibration_id: None,

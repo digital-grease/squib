@@ -57,6 +57,7 @@ struct Sim {
     pub views: Vec<EngineView>,
     utc: i64,
     diag_root: Option<String>,
+    auto_stop_count: Option<u32>,
 }
 
 impl Sim {
@@ -79,6 +80,7 @@ impl Sim {
             views: vec![],
             utc: 1_700_000_000_000,
             diag_root: None,
+            auto_stop_count: None,
         }
     }
 
@@ -93,6 +95,7 @@ impl Sim {
             unit_random: 0.5,
             pars_ms: pars,
             auto_stop_grace_ms: None,
+            auto_stop_count: self.auto_stop_count,
             expected_count: expected,
             threshold_db: None,
             calibration_id: None,
@@ -652,6 +655,7 @@ fn diagnostic_recording_is_opt_in_exact_and_exports_only_with_consent() {
             unit_random: 0.0,
             pars_ms: vec![],
             auto_stop_grace_ms: None,
+            auto_stop_count: None,
             expected_count: None,
             threshold_db: None,
             calibration_id: None,
@@ -760,4 +764,27 @@ fn cancelled_runs_keep_no_audio_and_default_runs_record_nothing() {
     let run_id = s.settle("saved").run_id.unwrap();
     assert!(s.eng.run_diagnostic(run_id).unwrap().is_none());
     assert!(!root2.exists());
+}
+
+#[test]
+fn live_run_stops_itself_after_the_target_accepted_shot_count() {
+    let mut s = Sim::new("count-stop");
+    // Shots at 0.7, 1.0, 1.35 s; one more inside the 1 s grace; one long after.
+    s.shot_offsets_ms = vec![700.0, 1000.0, 1350.0, 1800.0, 4000.0];
+    s.auto_stop_count = Some(3);
+    s.arm(Mode::PhoneLive, StartDelay::Random { min_ms: 800, max_ms: 1200 }, vec![], None);
+    s.settle("running");
+    // No Stop command: the engine stops on its own.
+    for _ in 0..600 {
+        s.run_ms(10);
+        if s.views.last().is_some_and(|v| v.phase != "running") {
+            break;
+        }
+    }
+    let v = s.settle("saved");
+    assert_eq!(v.outcome.as_deref(), Some("complete"));
+    let r = s.eng.load_review(v.run_id.unwrap()).unwrap();
+    let accepted: Vec<i64> = r.events.iter().filter(|e| e.state == "accepted").map(|e| e.timeline_ns / 1_000_000).collect();
+    assert_eq!(accepted.len(), 4, "the shot inside the grace counts; the late one is after the stop: {accepted:?}");
+    assert!(accepted.iter().all(|t| *t < 2_500));
 }
