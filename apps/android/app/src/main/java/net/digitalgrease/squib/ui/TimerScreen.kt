@@ -163,12 +163,34 @@ fun TimerScreen(
             )
             if (!s.parsMs().isNullOrEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Switch(checked = s.autoStop, onCheckedChange = { b -> c.updateSettings { it.copy(autoStop = b) } })
+                    Switch(checked = s.autoStop, onCheckedChange = { b -> c.updateSettings { it.copy(autoStop = b, autoStopCount = if (b) null else it.autoStopCount) } }, modifier = Modifier.testTag("auto_stop_switch"))
                     Spacer(Modifier.width(8.dp))
                     Text("Auto stop 1 s after last par")
                 }
             }
             if (s.mode == Mode.PHONE_LIVE) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Switch(
+                        checked = s.autoStopCount != null,
+                        onCheckedChange = { b -> c.updateSettings { it.copy(autoStopCount = if (b) (it.autoStopCount ?: 3) else null, autoStop = if (b) false else it.autoStop) } },
+                        modifier = Modifier.testTag("auto_stop_count_switch"),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Stop automatically after a number of shots")
+                }
+                s.autoStopCount?.let { n ->
+                    OutlinedTextField(
+                        value = n.toString(),
+                        onValueChange = { t -> c.updateSettings { it.copy(autoStopCount = t.filter(Char::isDigit).take(4).toIntOrNull() ?: 0) } },
+                        label = { Text("Shots before stopping") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().testTag("auto_stop_count"),
+                        singleLine = true,
+                    )
+                    Text("Stops about 1 s after the detector accepts shot $n; a shot within that second still counts. " +
+                        "Missed or extra detections change when it stops, so check the result in review.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 OutlinedTextField(
                     value = s.expectedCountText,
                     onValueChange = { t -> c.updateSettings { it.copy(expectedCountText = t.filter(Char::isDigit).take(4)) } },
@@ -206,7 +228,7 @@ fun TimerScreen(
 
         if (s.video) VideoPreview(c)
         Spacer(Modifier.height(12.dp))
-        StatusPanel(v)
+        StatusPanel(v, s.autoStopCount.takeIf { s.mode == Mode.PHONE_LIVE })
         Spacer(Modifier.height(12.dp))
         MainAction(v, s.validate() == null && (pf?.canArm != false), onArm = {
             val armNow = { if (s.video) onRequestCamera { c.arm() } else c.arm() }
@@ -301,13 +323,14 @@ private fun SensitivityRow(manual: Float?, calibrated: Float?, label: String?, o
 }
 
 @Composable
-private fun StatusPanel(v: EngineView) {
+private fun StatusPanel(v: EngineView, autoStopCount: Int? = null) {
     val (title, detail) = when (v.phase) {
         "ready" -> "Ready" to "Arm when in position."
         "preparing" -> "Preparing" to if (v.mode == Mode.PHONE_LIVE) "Opening microphone and measuring ambient sound…" else "Saving run setup…"
         "armed" -> "Armed: wait for the start cue" to "The start comes after the delay. No countdown is shown."
         "awaiting_cue" -> "Start cue" to "Listening for the cue…"
         "running" -> "GO" to if (v.mode == Mode.PHONE_LIVE) "Shots detected: ${v.acceptedCount}" +
+            (autoStopCount?.let { " · stops automatically after $it" } ?: "") +
             (if (v.uncertainCount > 0u) " (+${v.uncertainCount} uncertain)" else "") else "Par timer running"
         "completing" -> "Stopping" to "Finishing detection and saving…"
         "interrupted" -> "Interrupted" to (v.interruptReason ?: "Capture was interrupted.")

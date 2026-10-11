@@ -14,7 +14,7 @@ Squib turns an Android phone into a practice timer for shooting sports. It is bu
 ## What it does
 
 - **Par timer.** Set a start delay (instant, fixed, or random), add one or more par times, and press Arm. The phone plays a start beep after the delay and a beep at each par time. This mode never uses the microphone.
-- **Shot timing (experimental).** The phone listens for its own start beep and for shots, then shows your first-shot time, the splits between shots, and the total.
+- **Shot timing (experimental).** The phone listens for its own start beep and for shots, then shows your first-shot time, the splits between shots, and the total. It can optionally stop by itself about a second after it accepts a set number of shots; that stop depends on detection, so check the result in review.
 - **Review and correct.** After a run you can look at every detected shot, keep or reject uncertain ones, add a shot the phone missed, or nudge a time. Your corrections are saved as a new version; the original detections are never thrown away.
 - **Equipment (optional).** Name what you shoot with (pistol, rifle, PCC, shotgun, rimfire, other) and pick it on the Timer. Each run remembers the version it used, editing keeps earlier runs unchanged, summaries can compare one setup, and no serial numbers are asked for.
 - **Drills.** Save your own drills (start delay, par times, strings and rest, scoring) or start from simple examples. Editing a drill creates a new version, so earlier results stay comparable. Drills can be shared as small files.

@@ -40,6 +40,8 @@ data class TimerSettings(
     val parsText: String = "",
     val expectedCountText: String = "",
     val autoStop: Boolean = false,
+    /** Live mode: stop about 1 s after this many accepted shots (null: off). */
+    val autoStopCount: Int? = null,
     val manualThresholdDb: Float? = null,
     /** Drill this timer setup came from (pinned per run). */
     val drillId: String? = null,
@@ -72,6 +74,10 @@ fun TimerSettings.validate(): String? {
     }
     if (parsMs() == null) return "Par times: seconds separated by commas, e.g. 2.0, 3.5"
     if (autoStop && parsMs().isNullOrEmpty()) return "Auto stop needs at least one par time."
+    if (mode == Mode.PHONE_LIVE && autoStopCount != null) {
+        if (autoStopCount !in 1..1000) return "Shot count for automatic stop must be 1-1000."
+        if (autoStop) return "Choose one automatic stop: after the last par or after a shot count."
+    }
     if (expectedCountText.isNotBlank() && expectedCountText.trim().toIntOrNull()?.takeIf { it in 1..1000 } == null) {
         return "Expected count must be 1–1000."
     }
@@ -188,6 +194,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             unitRandom = Random.nextDouble(),
             parsMs = s.parsMs().orEmpty().map { it.toUInt() },
             autoStopGraceMs = if (s.autoStop) 1000u else null,
+            autoStopCount = s.autoStopCount?.takeIf { s.mode == Mode.PHONE_LIVE }?.toUInt(),
             expectedCount = s.expectedCountText.trim().toIntOrNull()?.toUInt(),
             thresholdDb = s.manualThresholdDb,
             calibrationId = pf?.calibrationId,
