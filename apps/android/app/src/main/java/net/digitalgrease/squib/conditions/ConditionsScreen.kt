@@ -43,6 +43,7 @@ import java.util.Locale
 import net.digitalgrease.squib.core.ConditionsView
 import net.digitalgrease.squib.core.FieldView
 import net.digitalgrease.squib.ui.LabeledToggle
+import net.digitalgrease.squib.ui.spoken
 import net.digitalgrease.squib.ui.LabeledValue
 import net.digitalgrease.squib.ui.oneOf
 import net.digitalgrease.squib.ui.Badge
@@ -97,6 +98,7 @@ private fun ValuesSection(view: ConditionsView, c: ConditionsController, busy: S
     }
     busy?.let { Text(it, fontWeight = FontWeight.Bold) }
     StatusLine(view)
+    AlertsSection(view)
     LabeledToggle("US units (°F, mph, inHg)", us, c::setUsUnits, controlAtEnd = true)
     HorizontalDivider()
     FieldList(view, us, c)
@@ -227,6 +229,65 @@ fun FieldList(view: ConditionsView, us: Boolean, c: ConditionsController?) {
     val shown = view.fields.filter { it.field in PRIMARY || it.valueState != "missing" }
     shown.forEach { f -> FieldRow(f, us, c) }
     DerivedSection(view, us)
+    HeatSection(view, us)
+}
+
+/** NWS active alerts for the place (plan phase 3.5): real, current alerts only, with age. */
+@Composable
+private fun AlertsSection(view: ConditionsView) {
+    if (view.alerts.isEmpty()) {
+        view.alertsNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("alerts_note")) }
+        return
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("alerts")) {
+        val fetched = view.alertsFetchedUtcMs?.let { " · ${Units.age(System.currentTimeMillis() - it)}" } ?: ""
+        Text("Weather alerts (National Weather Service)$fetched", fontWeight = FontWeight.Bold)
+        view.alerts.forEach { a ->
+            var open by remember { mutableStateOf(false) }
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    FlowRow {
+                        Text(a.event, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
+                        Badge(a.severity, warning = a.severity in setOf("Extreme", "Severe"))
+                    }
+                    a.untilUtcMs?.let { Text("Until ${fmtDate(it)}", style = MaterialTheme.typography.bodyMedium) }
+                    a.headline?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Text("${a.sender} · ${a.urgency}, ${a.certainty.lowercase()}", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.TextButton(onClick = { open = !open }, modifier = Modifier.heightIn(min = 48.dp)
+                        .spoken(if (open) "Hide details of ${a.event}" else "Show details of ${a.event}")) {
+                        Text(if (open) "Hide details" else "Details")
+                    }
+                    if (open) {
+                        if (a.area.isNotEmpty()) Text("Area: ${a.area}", style = MaterialTheme.typography.bodySmall)
+                        Text(a.description, style = MaterialTheme.typography.bodySmall)
+                        a.instruction?.let { Text(it, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Heat index card (plan phase 3.5), with the NWS method and its limits named. */
+@Composable
+private fun HeatSection(view: ConditionsView, us: Boolean) {
+    val h = view.heat ?: return
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp).testTag("heat")) {
+        Text("Heat index", fontWeight = FontWeight.Bold)
+        val value = if (us) String.format(Locale.US, "%.0f °F", h.heatIndexF) else String.format(Locale.US, "%.0f °C", h.heatIndexC)
+        FlowRow {
+            Text(value, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 8.dp))
+            Badge(h.category, warning = h.category in setOf("Danger", "Extreme danger"))
+        }
+        if (h.usesOlderData) {
+            Text("Uses stale or older inputs; see their ages above.", color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
+        }
+        Text("From: " + h.inputs.joinToString("; "), style = MaterialTheme.typography.bodySmall)
+        Text("NWS heat index (Rothfusz regression with NWS adjustments), for shade and light wind. Full sunshine can " +
+            "add up to 15 °F (8 °C). Categories are the NWS chart's likelihood of heat disorders with prolonged exposure or " +
+            "strenuous activity; this is information, not medical advice.", style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 /**

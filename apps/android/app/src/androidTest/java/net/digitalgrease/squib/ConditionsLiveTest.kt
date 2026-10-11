@@ -50,6 +50,8 @@ class ConditionsLiveTest {
         // Pressure here must stay unavailable: NWS has no local actual pressure.
         rule.waitUntil(2_000) { has("Needs a phone barometer") || has("Unavailable") }
         rule.waitUntil(2_000) { has("National Weather Service") }
+        // Alerts come with weather in Automatic mode: either alerts or the "none" note.
+        rule.waitUntil(5_000) { has("No active weather alerts") || rule.onAllNodes(hasTestTag("alerts")).fetchSemanticsNodes().isNotEmpty() }
         rule.waitUntil(2_000) { has("min old") || has("just now") || has("h old") }
     }
 
