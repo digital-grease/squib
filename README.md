@@ -38,6 +38,7 @@ Squib is an early prototype and is not yet available in any app store.
 - The par timer works.
 - Range conditions work with US weather stations (National Weather Service) and, anywhere else, with nearby airport reports (METAR). Where no station reports nearby, enter values by hand.
 - Shot timing works in testing on a computer and in the Android emulator, but it has **not yet been tested on a real phone at a real range**. Treat its times as experimental until that testing is done.
+- Long sessions and screen response have been measured on a computer and in the emulator only: 30 minutes of continuous capture with no gaps, and 95% of on-screen cues drawn within 34 ms of when they were due, the slowest in 87 ms (the target is 95% under 150 ms). These still need measuring on real phones.
 - Squib does not claim any particular accuracy. It labels uncertain results, interrupted runs, and setups it cannot vouch for instead of guessing.
 
 ## Privacy

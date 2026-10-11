@@ -34,6 +34,9 @@ android {
         versionCode = 1
         versionName = "0.1.0-m1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Long opt-in tests (the 30-minute capture soak) stay out of the default suite; see
+        // CaptureSoakTest for how to run them.
+        testInstrumentationRunnerArguments["notAnnotation"] = "net.digitalgrease.squib.Soak"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
