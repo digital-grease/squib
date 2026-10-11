@@ -292,6 +292,8 @@ pub struct HttpRequest {
     pub url: String,
     /// Cache validator from an earlier response, when known.
     pub if_none_match: Option<String>,
+    /// Wait this long before sending (a scheduled retry); 0 for a first try.
+    pub delay_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,6 +314,8 @@ pub struct HttpResponse {
     pub max_age_s: Option<u32>,
     pub retry_after_s: Option<u32>,
     pub error: Option<TransportError>,
+    /// Platform randomness in [0, 1) for retry jitter.
+    pub unit_random: f64,
 }
 
 /// Cached provider document.
@@ -337,6 +341,8 @@ pub struct RefreshResult {
     pub stations: Vec<StationRef>,
     /// True when at least one value came from the cache instead of a fresh response.
     pub used_cache: bool,
+    /// Requests tried again after a transient failure (shown with the refresh status).
+    pub retries: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -355,7 +361,8 @@ enum Phase {
 }
 
 /// Bounded refresh: points → stations → up to five latest observations, two at a time.
-/// No hidden retries: a failed request is reported and cached data fills in when present.
+/// A transient failure is retried within the deadline under [`crate::retry`]; a request
+/// that still fails is reported and cached data fills in when present.
 #[derive(Debug, Clone)]
 pub struct NwsRefresh {
     lookup: (f64, f64),
@@ -363,10 +370,20 @@ pub struct NwsRefresh {
     deadline_ms: i64,
     phase: Phase,
     next_id: u32,
-    outstanding: Vec<(u32, String, Option<usize>)>,
+    outstanding: Vec<Outstanding>,
     stations: Vec<StationRef>,
     queue: Vec<usize>,
     result: RefreshResult,
+}
+
+/// A request in flight: its id, what it fetches, and which try this is.
+#[derive(Debug, Clone)]
+struct Outstanding {
+    id: u32,
+    url: String,
+    station: Option<usize>,
+    etag: Option<String>,
+    attempt: u32,
 }
 
 pub fn cache_key_points(lookup: (f64, f64)) -> String {
@@ -394,7 +411,7 @@ impl NwsRefresh {
             outstanding: vec![],
             stations: vec![],
             queue: vec![],
-            result: RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false },
+            result: RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false, retries: 0 },
         };
         let key = cache_key_points(lookup);
         if let Some(doc) = cache.get(&key).filter(|d| d.expires_utc_ms > now_utc_ms)
@@ -412,10 +429,14 @@ impl NwsRefresh {
     }
 
     fn request(&mut self, url: String, station: Option<usize>, etag: Option<String>) -> HttpRequest {
+        self.send(url, station, etag, 1, 0)
+    }
+
+    fn send(&mut self, url: String, station: Option<usize>, etag: Option<String>, attempt: u32, delay_ms: u32) -> HttpRequest {
         let id = self.next_id;
         self.next_id += 1;
-        self.outstanding.push((id, url.clone(), station));
-        HttpRequest { id, url, if_none_match: etag }
+        self.outstanding.push(Outstanding { id, url: url.clone(), station, etag: etag.clone(), attempt });
+        HttpRequest { id, url, if_none_match: etag, delay_ms }
     }
 
     fn after_points(&mut self, info: PointInfo, now: i64, cache: &dyn DocCache) -> Step {
@@ -451,7 +472,7 @@ impl NwsRefresh {
             self.phase = Phase::Done;
             return Step::Done(std::mem::replace(
                 &mut self.result,
-                RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false },
+                RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false, retries: 0 },
             ));
         }
         Step::Fetch(reqs)
@@ -487,13 +508,14 @@ impl NwsRefresh {
 
     /// Feed one response. Unknown ids are ignored.
     pub fn on_response(&mut self, resp: HttpResponse, now_utc_ms: i64, cache: &mut dyn DocCache) -> Step {
-        let Some(pos) = self.outstanding.iter().position(|o| o.0 == resp.id) else { return Step::Fetch(vec![]) };
-        let (_, _url, station) = self.outstanding.remove(pos);
+        let Some(pos) = self.outstanding.iter().position(|o| o.id == resp.id) else { return Step::Fetch(vec![]) };
+        let sent = self.outstanding.remove(pos);
+        let station = sent.station;
         if now_utc_ms - self.started_utc_ms > self.deadline_ms {
             self.result.issues.push(ProviderIssue::DeadlineExceeded);
             self.queue.clear();
-            for (_, _, st) in std::mem::take(&mut self.outstanding) {
-                if let Some(i) = st {
+            for o in std::mem::take(&mut self.outstanding) {
+                if let Some(i) = o.station {
                     self.cache_obs_fallback(i, cache);
                 }
             }
@@ -501,6 +523,13 @@ impl NwsRefresh {
                 self.cache_obs_fallback(i, cache);
             }
             return self.pump(cache);
+        }
+        // A transient failure with time left is tried again; nothing is reported yet.
+        if let Some(delay) =
+            crate::retry::next_delay_ms(&resp, sent.attempt, now_utc_ms - self.started_utc_ms, self.deadline_ms, resp.unit_random)
+        {
+            self.result.retries += 1;
+            return Step::Fetch(vec![self.send(sent.url, sent.station, sent.etag, sent.attempt + 1, delay)]);
         }
         let kind = match &self.phase {
             Phase::Points => "points",
@@ -606,5 +635,5 @@ impl NwsRefresh {
 }
 
 fn empty() -> RefreshResult {
-    RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false }
+    RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false, retries: 0 }
 }

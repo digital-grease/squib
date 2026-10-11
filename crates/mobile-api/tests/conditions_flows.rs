@@ -69,10 +69,20 @@ fn refresh(e: &SquibEngine, now: i64, offline: bool) -> usize {
                 max_age_s: None,
                 retry_after_s: None,
                 error: Some("offline".into()),
+                unit_random: 0.5,
             }
         } else {
             let (status, body) = serve(&req.url);
-            HttpResponseFfi { id: req.id, status, body, etag: None, max_age_s: Some(300), retry_after_s: None, error: None }
+            HttpResponseFfi {
+                id: req.id,
+                status,
+                body,
+                etag: None,
+                max_age_s: Some(300),
+                retry_after_s: None,
+                error: None,
+                unit_random: 0.5,
+            }
         };
         step = e.conditions_response(resp, now);
         queue.extend(step.requests.clone());
@@ -302,4 +312,51 @@ fn invalid_inputs_are_rejected() {
     let p = e.add_saved_place("  Club range ".into(), 40.0, -105.0, NOW).unwrap();
     assert_eq!(p.label, "Club range");
     assert_eq!(e.list_saved_places().len(), 1);
+}
+
+#[test]
+fn a_transient_server_error_is_retried_after_a_delay_and_reported_as_a_retry() {
+    let e = engine("retry");
+    e.set_weather_enabled(true).unwrap();
+    boulder(&e);
+    let mut step = e.conditions_refresh(NOW).unwrap();
+    let mut queue = step.requests.clone();
+    let mut sent = vec![];
+    while !step.done {
+        let req = queue.remove(0);
+        sent.push((req.url.clone(), req.delay_ms));
+        let first_points = sent.iter().filter(|(u, _)| u.contains("/points/")).count() == 1 && req.url.contains("/points/");
+        let resp = if first_points {
+            HttpResponseFfi {
+                id: req.id,
+                status: 503,
+                body: vec![],
+                etag: None,
+                max_age_s: None,
+                retry_after_s: None,
+                error: None,
+                unit_random: 0.0,
+            }
+        } else {
+            let (status, body) = serve(&req.url);
+            HttpResponseFfi {
+                id: req.id,
+                status,
+                body,
+                etag: None,
+                max_age_s: Some(300),
+                retry_after_s: None,
+                error: None,
+                unit_random: 0.5,
+            }
+        };
+        step = e.conditions_response(resp, NOW + 1_000);
+        queue.extend(step.requests.clone());
+    }
+    assert_eq!(sent[0].1, 0);
+    assert!(sent[1].0.contains("/points/") && sent[1].1 == 250, "{sent:?}");
+    let v = e.conditions_view(NOW + 1_000);
+    assert_eq!(v.retries, 1);
+    assert!(v.issues.is_empty(), "{:?}", v.issues);
+    assert_eq!(field(&v, "temperature").origin, "nearby_observation");
 }

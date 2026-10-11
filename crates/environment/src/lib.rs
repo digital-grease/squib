@@ -10,6 +10,7 @@ pub mod metar;
 pub mod nws;
 pub mod privacy;
 pub mod resolver;
+pub mod retry;
 pub mod time;
 pub mod units;
 

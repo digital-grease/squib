@@ -386,13 +386,17 @@ fn observation_candidates(r: &Report, fetched: i64, out: &mut Vec<MeasurementCan
 
 // ---- Fetch planner -------------------------------------------------------------------
 
-/// One request (the search box); cached copy used when offline or rate limited.
+/// One request (the search box), retried on transient failures under [`crate::retry`];
+/// cached copy used when offline or rate limited.
 #[derive(Debug, Clone)]
 pub struct MetarRefresh {
     lookup: (f64, f64),
     started_utc_ms: i64,
     deadline_ms: i64,
     request_id: u32,
+    etag: Option<String>,
+    attempt: u32,
+    retries: u32,
     done: bool,
 }
 
@@ -403,9 +407,18 @@ fn finish(res: RefreshResult) -> Step {
 impl MetarRefresh {
     pub fn start(lat: f64, lon: f64, now_utc_ms: i64, deadline_ms: i64, cache: &dyn DocCache) -> Option<(Self, Step)> {
         let lookup = lookup_coords(lat, lon)?;
-        let r = Self { lookup, started_utc_ms: now_utc_ms, deadline_ms, request_id: 1, done: false };
         let etag = cache.get(&cache_key(lookup)).and_then(|d| d.etag);
-        let req = HttpRequest { id: r.request_id, url: search_url(lookup), if_none_match: etag };
+        let r = Self {
+            lookup,
+            started_utc_ms: now_utc_ms,
+            deadline_ms,
+            request_id: 1,
+            etag: etag.clone(),
+            attempt: 1,
+            retries: 0,
+            done: false,
+        };
+        let req = HttpRequest { id: r.request_id, url: search_url(lookup), if_none_match: etag, delay_ms: 0 };
         Some((r, Step::Fetch(vec![req])))
     }
 
@@ -428,9 +441,25 @@ impl MetarRefresh {
         if self.done || resp.id != self.request_id {
             return Step::Fetch(vec![]);
         }
+        let elapsed = now_utc_ms - self.started_utc_ms;
+        if elapsed <= self.deadline_ms
+            && let Some(delay) = crate::retry::next_delay_ms(&resp, self.attempt, elapsed, self.deadline_ms, resp.unit_random)
+        {
+            // A new id, so a late reply to the failed try is ignored.
+            self.request_id += 1;
+            self.attempt += 1;
+            self.retries += 1;
+            return Step::Fetch(vec![HttpRequest {
+                id: self.request_id,
+                url: search_url(self.lookup),
+                if_none_match: self.etag.clone(),
+                delay_ms: delay,
+            }]);
+        }
         self.done = true;
-        let mut res = RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false };
-        if now_utc_ms - self.started_utc_ms > self.deadline_ms {
+        let mut res =
+            RefreshResult { candidates: vec![], issues: vec![], stations: vec![], used_cache: false, retries: self.retries };
+        if elapsed > self.deadline_ms {
             res.issues.push(ProviderIssue::DeadlineExceeded);
             return finish(self.with_cached(cache, res));
         }

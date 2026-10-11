@@ -156,6 +156,7 @@ fn run_refresh(cache: &mut MemCache, fail: impl Fn(&str) -> Option<TransportErro
                         max_age_s: None,
                         retry_after_s: None,
                         error: Some(e),
+                        unit_random: 0.5,
                     },
                     None => {
                         let (status, body) = serve(&req.url);
@@ -167,6 +168,7 @@ fn run_refresh(cache: &mut MemCache, fail: impl Fn(&str) -> Option<TransportErro
                             max_age_s: Some(300),
                             retry_after_s: None,
                             error: None,
+                            unit_random: 0.5,
                         }
                     }
                 };
@@ -233,6 +235,7 @@ fn unsupported_location_is_typed() {
         max_age_s: None,
         retry_after_s: None,
         error: None,
+        unit_random: 0.5,
     };
     let Step::Done(res) = r.on_response(resp, NOW, &mut cache) else { panic!() };
     assert_eq!(res.issues, vec![ProviderIssue::UnsupportedLocation]);
@@ -411,4 +414,126 @@ fn redacted_snapshot_drops_location_revealing_provenance() {
     assert!(t.chosen.as_ref().unwrap().observed_utc_ms.is_some());
     assert!(r.field(Field::ElevationMsl).unwrap().reasons.contains(&Reason::PreciseProvenanceNotRetained));
     assert_eq!(apply(&s, LocationRetention::Precise), s);
+}
+
+// ---- Retry (plan phase 3.1) -----------------------------------------------------------
+
+/// What a fake server does for one try: status, Retry-After, transport error.
+type Fault = (u16, Option<u32>, Option<TransportError>);
+
+/// Drive a refresh where `fault(url, try_number)` can fail a try. The clock advances by
+/// each request's delay plus `latency_ms`, so the deadline is real.
+fn run_with_faults(
+    cache: &mut MemCache,
+    latency_ms: i64,
+    fault: impl Fn(&str, u32) -> Option<Fault>,
+) -> (nws::RefreshResult, Vec<(String, u32)>, i64) {
+    let (mut r, mut step) = nws::NwsRefresh::start(BOULDER.0, BOULDER.1, NOW, 20_000, cache).unwrap();
+    let mut sent: Vec<(String, u32)> = Vec::new();
+    let mut pending: Vec<nws::HttpRequest> = Vec::new();
+    let mut now = NOW;
+    for _ in 0..200 {
+        match step {
+            Step::Done(res) => return (res, sent, now - NOW),
+            Step::Fetch(reqs) => {
+                pending.extend(reqs);
+                let req = pending.remove(0);
+                now += i64::from(req.delay_ms) + latency_ms;
+                sent.push((req.url.clone(), req.delay_ms));
+                let tries = sent.iter().filter(|(u, _)| *u == req.url).count() as u32;
+                let resp = match fault(&req.url, tries) {
+                    Some((status, retry_after_s, error)) => HttpResponse {
+                        id: req.id,
+                        status,
+                        body: b"{}".to_vec(),
+                        etag: None,
+                        max_age_s: None,
+                        retry_after_s,
+                        error,
+                        unit_random: 0.5,
+                    },
+                    None => {
+                        let (status, body) = serve(&req.url);
+                        HttpResponse {
+                            id: req.id,
+                            status,
+                            body,
+                            etag: None,
+                            max_age_s: None,
+                            retry_after_s: None,
+                            error: None,
+                            unit_random: 0.5,
+                        }
+                    }
+                };
+                step = r.on_response(resp, now, cache);
+            }
+        }
+    }
+    panic!("refresh did not finish: unbounded");
+}
+
+#[test]
+fn transient_failures_are_retried_with_backoff_and_then_succeed() {
+    let mut cache = MemCache::default();
+    // The points lookup times out once; one observation gets a 503 twice.
+    let (res, sent, _) = run_with_faults(&mut cache, 200, |url, n| match () {
+        _ if url.contains("/points/") && n == 1 => Some((0, None, Some(TransportError::Timeout))),
+        _ if url.ends_with("/KBDU/observations/latest") && n <= 2 => Some((503, None, None)),
+        _ => None,
+    });
+    assert_eq!(res.retries, 3);
+    assert!(
+        res.issues.iter().all(|i| !matches!(i, ProviderIssue::Transport { .. } | ProviderIssue::Http { .. })),
+        "{:?}",
+        res.issues
+    );
+    assert!(
+        res.candidates.iter().any(|c| c.station.as_ref().is_some_and(|s| s.station_id == "KBDU")),
+        "the retried station's values arrive"
+    );
+    let kbdu: Vec<u32> = sent.iter().filter(|(u, _)| u.ends_with("/KBDU/observations/latest")).map(|(_, d)| *d).collect();
+    assert_eq!(kbdu.len(), 3);
+    assert_eq!(kbdu[0], 0, "first try is immediate");
+    assert!(kbdu[1] >= 250 && kbdu[1] < 500 && kbdu[2] >= 500 && kbdu[2] < 1000, "backoff doubles: {kbdu:?}");
+}
+
+#[test]
+fn persistent_failures_stop_after_three_tries_and_are_reported() {
+    let mut cache = MemCache::default();
+    let (res, sent, _) =
+        run_with_faults(&mut cache, 200, |url, _| url.ends_with("/KBDU/observations/latest").then_some((500, None, None)));
+    let tries = sent.iter().filter(|(u, _)| u.ends_with("/KBDU/observations/latest")).count();
+    assert_eq!(tries as u32, squib_environment::retry::MAX_ATTEMPTS);
+    assert!(res.issues.iter().any(|i| matches!(i, ProviderIssue::Http { status: 500, .. })));
+}
+
+#[test]
+fn rate_limits_respect_retry_after_and_give_up_beyond_the_deadline() {
+    // Retry-After 2 s fits: the retry waits at least that long.
+    let mut cache = MemCache::default();
+    let (res, sent, _) =
+        run_with_faults(&mut cache, 200, |url, n| (url.contains("/points/") && n == 1).then_some((429, Some(2), None)));
+    assert_eq!(sent[1].1, 2_000);
+    assert!(!res.candidates.is_empty() && res.retries == 1);
+    // Retry-After 60 s does not fit in the 20 s refresh: reported at once, not waited for.
+    let mut cache = MemCache::default();
+    let (res, sent, elapsed) =
+        run_with_faults(&mut cache, 200, |url, _| url.contains("/points/").then_some((429, Some(60), None)));
+    assert_eq!(sent.len(), 1);
+    assert!(elapsed < 1_000);
+    assert!(res.issues.contains(&ProviderIssue::RateLimited { retry_after_s: Some(60) }));
+}
+
+#[test]
+fn offline_is_not_retried_and_slow_networks_stay_inside_the_deadline() {
+    let mut cache = MemCache::default();
+    let (_, sent, _) = run_with_faults(&mut cache, 200, |_, _| Some((0, None, Some(TransportError::Offline))));
+    assert_eq!(sent.len(), 1, "no point retrying without a network");
+    // Every try times out after 8 s: the refresh ends within its deadline plus one request.
+    let mut cache = MemCache::default();
+    let (res, sent, elapsed) = run_with_faults(&mut cache, 8_000, |_, _| Some((0, None, Some(TransportError::Timeout))));
+    assert!(sent.len() <= 3);
+    assert!(elapsed <= 20_000 + 8_000, "elapsed {elapsed} ms");
+    assert!(res.issues.iter().any(|i| matches!(i, ProviderIssue::Transport { .. } | ProviderIssue::DeadlineExceeded)));
 }

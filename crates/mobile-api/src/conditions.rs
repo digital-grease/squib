@@ -46,6 +46,8 @@ pub struct CondState {
     pub refresh: Option<Refresh>,
     pub last_refresh_utc_ms: Option<i64>,
     pub used_cache: bool,
+    /// Requests retried during the last refresh.
+    pub retries: u32,
     pub allow_older: bool,
 }
 
@@ -82,6 +84,8 @@ pub struct HttpRequestFfi {
     pub accept: String,
     pub if_none_match: Option<String>,
     pub max_body_bytes: u32,
+    /// Wait this long before sending: a scheduled retry after a transient failure.
+    pub delay_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -94,6 +98,8 @@ pub struct HttpResponseFfi {
     pub retry_after_s: Option<u32>,
     /// `offline`, `timeout`, `too_large`, `tls`, or free text; `None` on success.
     pub error: Option<String>,
+    /// Platform randomness in [0, 1) for retry jitter.
+    pub unit_random: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -161,6 +167,8 @@ pub struct ConditionsView {
     pub attribution: Vec<String>,
     pub last_refresh_utc_ms: Option<i64>,
     pub used_cache: bool,
+    /// Requests retried during the last refresh after a transient failure.
+    pub retries: u32,
     pub refreshing: bool,
     pub allow_older: bool,
     /// The snapshot is redacted (history view of a run).
@@ -351,6 +359,7 @@ fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i
                     accept: accept.into(),
                     if_none_match: r.if_none_match,
                     max_body_bytes: max_body as u32,
+                    delay_ms: r.delay_ms,
                 })
                 .collect(),
             done: false,
@@ -360,6 +369,7 @@ fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i
             st.remote = res.candidates;
             st.issues = res.issues;
             st.used_cache = res.used_cache;
+            st.retries = res.retries;
             st.last_refresh_utc_ms = Some(now_utc_ms);
             ConditionsStep { requests: vec![], done: true }
         }
@@ -457,6 +467,7 @@ impl SquibEngine {
             attribution: snap.attribution.clone(),
             last_refresh_utc_ms: st.last_refresh_utc_ms,
             used_cache: st.used_cache,
+            retries: st.retries,
             refreshing: st.refresh.is_some(),
             allow_older: st.allow_older,
             redacted: false,
@@ -584,6 +595,7 @@ impl SquibEngine {
             max_age_s: resp.max_age_s,
             retry_after_s: resp.retry_after_s,
             error,
+            unit_random: resp.unit_random,
         };
         let read = self.read_repo();
         let provider = r.provider();
@@ -697,6 +709,7 @@ impl SquibEngine {
             attribution: s.attribution.clone(),
             last_refresh_utc_ms: Some(s.created_utc_ms),
             used_cache: false,
+            retries: 0,
             refreshing: false,
             allow_older: false,
             redacted: s.redacted,

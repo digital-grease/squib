@@ -148,6 +148,7 @@ fn planner_uses_one_request_and_falls_back_to_cache_offline() {
         max_age_s: Some(60),
         retry_after_s: None,
         error: None,
+        unit_random: 0.5,
     };
     let Step::Done(res) = r.on_response(ok, NOW + 500, &mut cache) else { panic!() };
     assert!(!res.used_cache && !res.candidates.is_empty());
@@ -164,6 +165,7 @@ fn planner_uses_one_request_and_falls_back_to_cache_offline() {
         max_age_s: None,
         retry_after_s: None,
         error: Some(TransportError::Offline),
+        unit_random: 0.5,
     };
     let Step::Done(res) = r.on_response(offline, NOW + 3_600_100, &mut cache) else { panic!() };
     assert!(res.used_cache);
@@ -180,4 +182,41 @@ fn resolver_uses_metar_with_attribution_and_keeps_local_pressure_unavailable() {
     assert!(f(Field::Temperature).chosen.is_some());
     assert!(f(Field::LocalPressure).chosen.is_none(), "QFE at a remote station is not local pressure");
     assert!(s.attribution.iter().any(|a| a == metar::ATTRIBUTION));
+}
+
+#[test]
+fn planner_retries_a_server_error_with_a_new_request_id() {
+    let mut cache = MemCache::default();
+    let (mut r, step) = MetarRefresh::start(LONDON.0, LONDON.1, NOW, 20_000, &cache).unwrap();
+    let Step::Fetch(reqs) = step else { panic!() };
+    let first = reqs[0].id;
+    let bad = HttpResponse {
+        id: first,
+        status: 502,
+        body: vec![],
+        etag: None,
+        max_age_s: None,
+        retry_after_s: None,
+        error: None,
+        unit_random: 0.0,
+    };
+    let Step::Fetch(retry) = r.on_response(bad.clone(), NOW + 300, &mut cache) else { panic!("retried") };
+    assert_eq!(retry.len(), 1);
+    assert_ne!(retry[0].id, first);
+    assert_eq!(retry[0].delay_ms, 250);
+    // A late reply to the failed try is ignored.
+    assert_eq!(r.on_response(bad, NOW + 400, &mut cache), Step::Fetch(vec![]));
+    let ok = HttpResponse {
+        id: retry[0].id,
+        status: 200,
+        body: fx("bbox_london.json"),
+        etag: None,
+        max_age_s: Some(60),
+        retry_after_s: None,
+        error: None,
+        unit_random: 0.5,
+    };
+    let Step::Done(res) = r.on_response(ok, NOW + 900, &mut cache) else { panic!() };
+    assert_eq!(res.retries, 1);
+    assert!(!res.candidates.is_empty() && res.issues.is_empty(), "{:?}", res.issues);
 }
