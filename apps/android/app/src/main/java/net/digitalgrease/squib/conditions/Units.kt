@@ -19,7 +19,7 @@ object Units {
         "wind_direction" -> DisplayUnit("°", { it }, { it }, 0)
         "local_pressure", "remote_station_pressure", "altimeter_setting", "sea_level_pressure" ->
             if (us) DisplayUnit("inHg", { it / 3386.389 }, { it * 3386.389 }, 2) else DisplayUnit("hPa", { it / 100 }, { it * 100 }, 1)
-        "elevation_msl", "elevation_ellipsoid" -> if (us) DisplayUnit("ft", { it / 0.3048 }, { it * 0.3048 }, 0)
+        "elevation_msl", "elevation_ellipsoid", "elevation_terrain" -> if (us) DisplayUnit("ft", { it / 0.3048 }, { it * 0.3048 }, 0)
         else DisplayUnit("m", { it }, { it }, 0)
         else -> null
     }
@@ -53,8 +53,18 @@ object Units {
         "here" -> "Here"
         "nearby_observation" -> "Nearby observation"
         "model_estimate" -> "Model estimate"
+        "terrain" -> "Terrain data"
         "manual" -> "Manual"
         else -> "Unavailable"
+    }
+
+    fun datumLabel(d: String): String = when (d) {
+        "wgs84_ellipsoid" -> "WGS84 ellipsoid (GPS)"
+        "msl_platform" -> "Sea level, as the phone reports it"
+        "msl_provider" -> "Sea level, as the station reports it"
+        "msl_manual" -> "Sea level, as you entered it"
+        "navd88" -> "NAVD88 (US vertical datum)"
+        else -> "Unknown"
     }
 
     fun distance(m: Double?, us: Boolean): String = when {

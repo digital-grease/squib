@@ -6,8 +6,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Vibration start and par cues (opt-in, par-only). A normal permission: no prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Used only for opt-in weather lookups (HTTPS GET to api.weather.gov). The app has
-         no upload path. Audio is written only as an opt-in, per-run diagnostic recording,
+    <!-- Used only for opt-in lookups, each with its own switch: weather (HTTPS GET to
+         api.weather.gov and aviationweather.gov) and terrain elevation (HTTPS GET to
+         epqs.nationalmap.gov). The app has no upload path. Audio is written only as an opt-in, per-run diagnostic recording,
          and is never sent; exporting it is a separate user action (A18). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Foreground, one-shot, only when the user taps "Use my location". -->

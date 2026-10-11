@@ -85,9 +85,9 @@ private fun ValuesSection(view: ConditionsView, c: ConditionsController, busy: S
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
         Button(
             onClick = { c.refresh() },
-            enabled = view.weatherEnabled && view.place != null && busy == null,
+            enabled = (view.weatherEnabled || view.terrainEnabled) && view.place != null && busy == null,
             modifier = Modifier.heightIn(min = 56.dp).testTag("refresh"),
-        ) { Text("Update weather") }
+        ) { Text(if (view.weatherEnabled) "Update weather" else "Update terrain") }
         if (c.hasBarometer) {
             OutlinedButton(onClick = { c.readPhoneSensors() }, enabled = busy == null, modifier = Modifier.heightIn(min = 56.dp)) {
                 Text("Read phone barometer")
@@ -134,6 +134,19 @@ private fun LookupCard(view: ConditionsView, c: ConditionsController) {
                     "kilometres away and at a different elevation; each value shows its station and age.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            LabeledToggle("Terrain elevation (US)", view.terrainEnabled, c::setTerrainEnabled, controlAtEnd = true, bold = true, tag = "terrain_switch")
+            Text(
+                "Sends your place to about 10 m, more precisely than weather lookups, to the US Geological Survey Elevation " +
+                    "Point Query Service for the ground height there (public-domain 3DEP data, NAVD88 in the lower 48 states). " +
+                    "Off by default. While on, Squib keeps the place to about 10 m on this phone; turning it off forgets it. " +
+                    "Ground height is not your phone's height and is not compared with readings on other references.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (view.terrainNeedsPlace) {
+                Text("Set the place again so Squib can look up terrain at about 10 m.", color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("terrain_needs_place"))
+            }
         }
     }
 }
@@ -253,8 +266,11 @@ private fun Details(f: FieldView, us: Boolean, c: ConditionsController?) {
         f.fetchedUtcMs?.let { Text("Fetched ${fmtDate(it)}") }
         f.qc?.let { Text("Provider quality code: $it") }
         if (f.originalValue != null && f.originalUnit != null) Text("As received: ${f.originalValue} ${f.originalUnit}")
-        f.datum?.let { Text("Height reference: $it") }
-        f.accuracy?.let { Text(String.format(Locale.US, "Reported accuracy: %.1f", it)) }
+        f.datum?.let { Text("Height reference: ${Units.datumLabel(it)}") }
+        f.accuracy?.let { a ->
+            Text(String.format(Locale.US, "Stated accuracy: %.2f %s", a, f.siUnit) + (f.accuracyMeaning?.let { " ($it)" } ?: ""))
+        }
+        f.dataset?.let { Text("Dataset: $it") }
         f.reasons.forEach { Text("Why: $it") }
         if (f.alternatives.isNotEmpty()) {
             Text("Other sources:", fontWeight = FontWeight.SemiBold)

@@ -45,7 +45,8 @@ object WeatherTransport {
         return try {
             conn.instanceFollowRedirects = false
             conn.connectTimeout = CONNECT_TIMEOUT_MS
-            conn.readTimeout = READ_TIMEOUT_MS
+            // The core sets a longer timeout for slow services (terrain); 0 means default.
+            conn.readTimeout = if (req.timeoutMs > 0u) req.timeoutMs.toInt() else READ_TIMEOUT_MS
             conn.useCaches = false
             conn.setRequestProperty("User-Agent", req.userAgent)
             conn.setRequestProperty("Accept", req.accept)

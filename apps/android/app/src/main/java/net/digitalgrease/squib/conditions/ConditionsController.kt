@@ -7,9 +7,7 @@ import androidx.lifecycle.viewModelScope
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +17,7 @@ import net.digitalgrease.squib.SquibApp
 import net.digitalgrease.squib.core.ConditionsView
 import net.digitalgrease.squib.core.DeviceReadings
 import net.digitalgrease.squib.core.HttpRequestFfi
+import net.digitalgrease.squib.core.HttpResponseFfi
 import net.digitalgrease.squib.core.PlaceInput
 import net.digitalgrease.squib.core.SavedPlaceView
 import net.digitalgrease.squib.core.SquibException
@@ -86,6 +85,8 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
 
     fun setWeatherEnabled(on: Boolean) = act(null) { engine.setWeatherEnabled(on) }
 
+    fun setTerrainEnabled(on: Boolean) = act(null) { engine.setTerrainEnabled(on) }
+
     fun setWeatherProvider(p: String) = act(null) { engine.setWeatherProvider(p) }
 
     fun setPreciseRetention(on: Boolean) = act(null) { engine.setPreciseRetention(on) }
@@ -151,7 +152,7 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
     fun refreshIfDue(runActive: Boolean) {
         val v = _view.value ?: return
         val now = System.currentTimeMillis()
-        val due = RefreshPolicy.due(now, v.lastRefreshUtcMs, lastAutoAttemptUtcMs, v.weatherEnabled, v.place != null,
+        val due = RefreshPolicy.due(now, v.lastRefreshUtcMs, lastAutoAttemptUtcMs, v.weatherEnabled || v.terrainEnabled, v.place != null,
             refreshing = _busy.value != null, runActive = runActive)
         if (!due) return
         lastAutoAttemptUtcMs = now
@@ -160,21 +161,29 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
 
     /** Runs the core's bounded refresh plan to completion. */
     fun refresh(quiet: Boolean = false) = act("Updating weather…", quiet) {
+        // Each request runs on its own and each response reaches the core as soon as it
+        // arrives, so a slow terrain lookup never holds back weather results.
+        val results = kotlinx.coroutines.channels.Channel<HttpResponseFfi>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        var inFlight = 0
+        fun send(reqs: List<HttpRequestFfi>) = viewModelScope.launch(Dispatchers.IO) {
+            for (r in reqs) {
+                launch {
+                    // A retry the core scheduled waits its delay first; the core bounds it.
+                    if (r.delayMs > 0u) delay(r.delayMs.toLong())
+                    results.send(WeatherTransport.execute(r))
+                }
+            }
+        }
         var step = engine.conditionsRefresh(System.currentTimeMillis())
-        var pending: List<HttpRequestFfi> = step.requests
-        while (!step.done) {
-            if (pending.isEmpty()) break
-            val responses = withContext(Dispatchers.IO) {
-                // A retry the core scheduled waits its delay first; the core bounds it by
-                // the refresh deadline.
-                pending.map { r -> async { if (r.delayMs > 0u) delay(r.delayMs.toLong()); WeatherTransport.execute(r) } }.awaitAll()
-            }
-            pending = emptyList()
-            for (resp in responses) {
-                step = engine.conditionsResponse(resp, System.currentTimeMillis())
-                pending = pending + step.requests
-                if (step.done) break
-            }
+        inFlight += step.requests.size
+        send(step.requests)
+        while (!step.done && inFlight > 0) {
+            val resp = results.receive()
+            inFlight--
+            step = engine.conditionsResponse(resp, System.currentTimeMillis())
+            inFlight += step.requests.size
+            send(step.requests)
+            _view.value = engine.conditionsView(System.currentTimeMillis())
         }
     }
 
