@@ -43,6 +43,7 @@ import java.util.Locale
 import net.digitalgrease.squib.core.ConditionsView
 import net.digitalgrease.squib.core.FieldView
 import net.digitalgrease.squib.ui.LabeledToggle
+import net.digitalgrease.squib.ui.LabeledValue
 import net.digitalgrease.squib.ui.oneOf
 import net.digitalgrease.squib.ui.Badge
 import net.digitalgrease.squib.ui.fmtDate
@@ -225,6 +226,38 @@ private fun StatusLine(view: ConditionsView) {
 fun FieldList(view: ConditionsView, us: Boolean, c: ConditionsController?) {
     val shown = view.fields.filter { it.field in PRIMARY || it.valueState != "missing" }
     shown.forEach { f -> FieldRow(f, us, c) }
+    DerivedSection(view, us)
+}
+
+/**
+ * Air density, density altitude and pressure altitude (plan phase 3.4), with the method
+ * and inputs named. Nothing is shown as a value when an input is missing.
+ */
+@Composable
+private fun DerivedSection(view: ConditionsView, us: Boolean) {
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp).testTag("derived")) {
+        Text("Air density (calculated)", fontWeight = FontWeight.Bold)
+        val d = view.derived
+        if (d == null) {
+            Text(view.derivedUnavailable ?: "Not calculated.", style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag("derived_unavailable"))
+            Text("Uses actual pressure here (a phone barometer or your entry), temperature and humidity. " +
+                "Altimeter setting and sea-level pressure are not used.", style = MaterialTheme.typography.bodySmall)
+            return@Column
+        }
+        val alt = { m: Double -> if (us) String.format(Locale.US, "%,.0f ft", m / 0.3048) else String.format(Locale.US, "%,.0f m", m) }
+        LabeledValue("Air density", String.format(Locale.US, "%.4f kg/m³", d.densityKgM3))
+        LabeledValue("Density altitude", alt(d.densityAltitudeM))
+        LabeledValue("Pressure altitude", alt(d.pressureAltitudeM))
+        if (d.usesOlderData) {
+            Text("Uses stale or older inputs; see their ages above.", color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
+        }
+        Text("From: " + d.inputs.joinToString("; "), style = MaterialTheme.typography.bodySmall)
+        Text("Method ${d.method}: moist air as an ideal gas (vapour pressure after Alduchov and Eskridge, 1996); " +
+            "altitudes are where the ICAO Standard Atmosphere has the same density or pressure. Density altitude " +
+            "describes the air; it is not a height.", style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 @Composable
