@@ -57,8 +57,8 @@ class AutoStopSettingsTest {
 
         // Leave the shared settings as other tests expect them.
         node("auto_stop_count_switch").performClick()
-        node("pars").performTextReplacement("")
         rule.onNodeWithTag("mode_par").performScrollTo().performClick()
         rule.waitOrDump { !tag("auto_stop_count_switch") }
+        node("pars").performTextReplacement("")
     }
 }

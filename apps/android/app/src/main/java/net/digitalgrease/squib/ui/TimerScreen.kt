@@ -44,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.digitalgrease.squib.core.AUTO_REPEAT_MIN_S
+import net.digitalgrease.squib.core.AutoRepeatCountdown
 import net.digitalgrease.squib.core.DelayKind
 import net.digitalgrease.squib.core.EngineView
 import net.digitalgrease.squib.core.Mode
@@ -65,6 +67,12 @@ fun TimerScreen(
     val v by c.view.collectAsState()
     val s by c.settings.collectAsState()
     val pf by c.preflight.collectAsState()
+    val countdown by c.autoRepeat.collectAsState()
+    // An automatic repeat must stay visible: it never arms while the Timer is off screen.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        c.onTimerVisible(true)
+        onDispose { c.onTimerVisible(false) }
+    }
     val editable = !v.active && v.phase !in setOf("saved", "save_pending", "interrupted", "completing")
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -168,6 +176,23 @@ fun TimerScreen(
                     Text("Auto stop 1 s after last par")
                 }
             }
+            if (s.drillId != null && s.drillRepeats > 1) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Switch(
+                        checked = s.autoRepeat,
+                        onCheckedChange = { b -> c.updateSettings { it.copy(autoRepeat = b) } },
+                        modifier = Modifier.testTag("auto_repeat_switch"),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Arm the next string automatically")
+                }
+                if (s.autoRepeat) {
+                    Text("After each complete string, a countdown of the rest (at least $AUTO_REPEAT_MIN_S s) is shown with a Cancel button, " +
+                        "then the next string arms with a new start delay. It stops after the last string, after a string that did not " +
+                        "complete, or when you leave the Timer.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (s.mode == Mode.PHONE_LIVE) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
                     Switch(
@@ -237,7 +262,10 @@ fun TimerScreen(
 
         if (v.phase in setOf("saved", "save_pending", "cancelled", "failed")) {
             Spacer(Modifier.height(12.dp))
-            if (s.drillId != null && s.drillRestS > 0 && s.stringIndex < s.drillRepeats && v.phase == "saved") {
+            val next = countdown
+            if (next != null && v.phase == "saved") {
+                AutoRepeatPanel(next) { c.cancelAutoRepeat() }
+            } else if (s.drillId != null && s.drillRestS > 0 && s.stringIndex < s.drillRepeats && v.phase == "saved") {
                 RestCountdown(s.drillRestS, v.runId)
             }
             ResultActions(v, c, onReview)
@@ -283,6 +311,27 @@ private fun RestCountdown(restS: Int, key: String?) {
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp),
     )
+}
+
+/** A pending automatic repeat: what arms, when, and a large Cancel. */
+@Composable
+private fun AutoRepeatPanel(a: AutoRepeatCountdown, onCancel: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                "String ${a.nextString} of ${a.strings} arms automatically in ${a.secondsLeft} s",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.testTag("auto_repeat_status").semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Text("Rest until then. Repeat arms it now; Cancel stops automatic repeat for this set.",
+                style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().height(64.dp).testTag("auto_repeat_cancel")) {
+                Text("Cancel automatic repeat", fontSize = 20.sp)
+            }
+        }
+    }
 }
 
 @Composable

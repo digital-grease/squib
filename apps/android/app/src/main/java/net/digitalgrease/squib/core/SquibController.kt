@@ -58,7 +58,26 @@ data class TimerSettings(
     val video: Boolean = false,
     /** Keep a diagnostic audio recording of the next live run only (turns itself off). */
     val diagnostic: Boolean = false,
+    /** Drill sets: arm the next string after a visible, cancelable countdown. Off per set. */
+    val autoRepeat: Boolean = false,
 )
+
+/** The next string of a set is about to arm itself; shown with a Cancel button. */
+data class AutoRepeatCountdown(val nextString: Int, val strings: Int, val secondsLeft: Int)
+
+/** Shortest countdown before an automatic repeat, even when the drill has no rest. */
+const val AUTO_REPEAT_MIN_S = 5
+
+/**
+ * Seconds before the next string arms automatically, or null when it must not: only
+ * after a complete, saved string that is not the set's last (plan phase 2.2).
+ */
+fun TimerSettings.autoRepeatDelayS(phase: String, outcome: String?): Int? =
+    if (autoRepeat && drillId != null && stringIndex < drillRepeats && phase == "saved" && outcome == "complete") {
+        maxOf(drillRestS, AUTO_REPEAT_MIN_S)
+    } else {
+        null
+    }
 
 enum class DelayKind { INSTANT, FIXED, RANDOM }
 
@@ -114,6 +133,11 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     val settings: StateFlow<TimerSettings> = _settings.asStateFlow()
     private val _preflight = MutableStateFlow<Preflight?>(null)
     val preflight: StateFlow<Preflight?> = _preflight.asStateFlow()
+    private val _autoRepeat = MutableStateFlow<AutoRepeatCountdown?>(null)
+    val autoRepeat: StateFlow<AutoRepeatCountdown?> = _autoRepeat.asStateFlow()
+    private var autoRepeatJob: Job? = null
+    /** Run whose result has already been considered for an automatic repeat. */
+    @Volatile private var autoRepeatRun: String? = null
     private val _keepScreenOn = MutableStateFlow(false)
     val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
@@ -177,6 +201,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     private fun tz(): Int = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
 
     fun arm() {
+        stopCountdown()
         val s = _settings.value
         s.validate()?.let {
             _message.value = it
@@ -216,6 +241,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
 
     /** Repeat reuses the configuration with a fresh random delay and a new run id. */
     fun repeat() {
+        stopCountdown()
         val s = _settings.value
         if (s.drillId != null) {
             _settings.value = s.copy(stringIndex = if (s.stringIndex >= s.drillRepeats) 1 else s.stringIndex + 1)
@@ -252,11 +278,13 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             planTitle = planTitle,
         )
         lastArm = null
+        stopCountdown()
         viewModelScope.launch(control) { if (!_view.value.active) runCatching { apply(engine.reset()) } }
         refreshPreflight()
     }
 
     fun clearDrill() {
+        cancelAutoRepeat(null)
         _settings.value = _settings.value.copy(drillId = null, drillVersion = null, drillTitle = null, drillRepeats = 1, drillRestS = 0, stringIndex = 1, planItemId = null, planTitle = null)
     }
 
@@ -266,18 +294,19 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                 val pf = engine.preflight(req.mode, inspector.expectedRoute().copy(cameraRecording = req.video), inspector.expectedRateHz().toUInt())
                 _preflight.value = pf
                 if (!pf.canArm) {
-                    _message.value = pf.messages.firstOrNull() ?: "This route cannot be used for live timing."
+                    armFailed(pf.messages.firstOrNull() ?: "This route cannot be used for live timing.")
                     return@launch
                 }
             }
             if (!requestFocus()) {
-                _message.value = "Another app is using audio (for example a call), so cues may not be heard. Try again when it stops."
+                armFailed("Another app is using audio (for example a call), so cues may not be heard. Try again when it stops.")
                 return@launch
             }
             // Video starts first, so any change the camera makes to the audio path happens
             // before the microphone opens rather than mid-run.
             if (req.video && !startVideo()) {
                 abandonFocus()
+                _settings.value = _settings.value.copy(autoRepeat = false)
                 return@launch
             }
             try {
@@ -287,7 +316,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                 apply(v)
                 startLoop()
             } catch (e: SquibException) {
-                _message.value = e.message
+                armFailed(e.message)
                 if (req.video) finishVideo(keep = false)
             }
         }
@@ -299,7 +328,72 @@ class SquibController(app: Application) : AndroidViewModel(app) {
 
     fun retrySave() = command { engine.retrySave(UUID.randomUUID().toString(), System.nanoTime()) }
 
-    fun dismissResult() = command { engine.reset() }
+    fun dismissResult() {
+        cancelAutoRepeat(null)
+        command { engine.reset() }
+    }
+
+    private fun armFailed(message: String?) {
+        _message.value = message
+        // A string that could not arm ends an automatic chain; Repeat still works by hand.
+        _settings.value = _settings.value.copy(autoRepeat = false)
+    }
+
+    /** Stop a pending automatic repeat and turn it off for the rest of this set. */
+    fun cancelAutoRepeat(reason: String? = null) {
+        val pending = _autoRepeat.value != null
+        stopCountdown()
+        if (reason != null && !pending) return
+        if (_settings.value.autoRepeat) _settings.value = _settings.value.copy(autoRepeat = false)
+        if (reason != null) _message.value = reason
+    }
+
+    @Volatile private var timerVisible = false
+
+    /** The Timer screen came on or went off screen; a pending automatic repeat is cancelled. */
+    fun onTimerVisible(visible: Boolean) {
+        timerVisible = visible
+        if (!visible) cancelAutoRepeat("Automatic repeat was cancelled because you left the Timer.")
+    }
+
+    private fun stopCountdown() {
+        autoRepeatJob?.cancel()
+        autoRepeatJob = null
+        _autoRepeat.value = null
+    }
+
+    /** After a string ends: count down to the next one, or end the chain (plan phase 2.2). */
+    private fun considerAutoRepeat(v: EngineView) {
+        val s = _settings.value
+        if (!s.autoRepeat || v.phase !in setOf("saved", "cancelled", "failed")) return
+        val run = v.runId ?: return
+        if (run == autoRepeatRun) return
+        autoRepeatRun = run
+        val wait = s.autoRepeatDelayS(v.phase, v.outcome)
+        if (wait != null && !timerVisible) {
+            _settings.value = s.copy(autoRepeat = false)
+            _message.value = "Automatic repeat stopped because the Timer was not on screen. Press Repeat to go on."
+            return
+        }
+        if (wait == null) {
+            _settings.value = s.copy(autoRepeat = false)
+            if (s.stringIndex < s.drillRepeats) {
+                _message.value = "Automatic repeat stopped because that string did not complete. Press Repeat to go on."
+            }
+            return
+        }
+        autoRepeatJob?.cancel()
+        autoRepeatJob = viewModelScope.launch {
+            val end = android.os.SystemClock.elapsedRealtime() + wait * 1000L
+            while (isActive) {
+                val leftMs = end - android.os.SystemClock.elapsedRealtime()
+                if (leftMs <= 0) break
+                _autoRepeat.value = AutoRepeatCountdown(s.stringIndex + 1, s.drillRepeats, ((leftMs + 999) / 1000).toInt())
+                delay(minOf(leftMs, 250L))
+            }
+            if (isActive && _settings.value.autoRepeat) repeat()
+        }
+    }
 
     private fun command(f: () -> EngineView) {
         viewModelScope.launch(control) {
@@ -314,6 +408,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
 
     /** Activity left the foreground: an active run is interrupted (ADR-006). */
     fun onForegroundLost() {
+        cancelAutoRepeat("Automatic repeat was cancelled because Squib left the screen.")
         viewModelScope.launch(control) {
             if (_view.value.active) apply(engine.lifecycle(LifecycleEvent.FOREGROUND_LOST, System.nanoTime()))
             if (_probe.value != null) apply(engine.lifecycle(LifecycleEvent.FOREGROUND_LOST, System.nanoTime()))
@@ -351,6 +446,9 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     private fun apply(v: EngineView) {
         _view.value = v
         handleEffects(v.effects)
+        if (_settings.value.autoRepeat && v.phase in setOf("saved", "cancelled", "failed") && v.runId != autoRepeatRun) {
+            viewModelScope.launch { considerAutoRepeat(v) }
+        }
         if (videoClip != null && !v.active && v.phase != "ready") {
             // Cancelled runs record no timing and failed starts have no run: their clips are discarded.
             finishVideo(keep = v.phase !in setOf("cancelled", "failed"))
