@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val data: DataController by viewModels()
+    private val walkthrough: net.digitalgrease.squib.data.WalkthroughController by viewModels()
     private var photoRun: String? = null
     private var backupWithPhotos = true
     private var backupWithAudio = false
@@ -197,7 +198,16 @@ class MainActivity : ComponentActivity() {
                 }
                 val locDenied by locationDenied
                 val denied by deniedMessage
+                val walk by walkthrough.state.collectAsState()
                 Scaffold(
+                    topBar = {
+                        // A running walkthrough stays visible everywhere except its own plan.
+                        walk?.takeIf { !(tab == "plan" && openPlan == it.planId && reviewRun == null) }?.let { w ->
+                            net.digitalgrease.squib.ui.WalkthroughBanner(w, onOpen = {
+                                reviewRun = null; openSession = null; openPlan = w.planId; tab = "plan"
+                            }, onStop = walkthrough::stop)
+                        }
+                    },
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
@@ -257,7 +267,7 @@ class MainActivity : ComponentActivity() {
                                 onTemplate = { tab = "checklist" },
                             )
                             tab == "plan" && openPlan != null -> PlanScreen(
-                                data, openPlan!!,
+                                data, walkthrough, openPlan!!,
                                 onBack = { openPlan = null; tab = "practice"; data.reload() },
                                 onStartDrill = { d, item, title, strings -> controller.startDrill(d, item, title, strings); tab = "timer" },
                                 onOpenRun = { reviewRun = it },

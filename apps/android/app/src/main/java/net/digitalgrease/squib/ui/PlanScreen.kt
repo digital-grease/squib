@@ -1,9 +1,6 @@
 package net.digitalgrease.squib.ui
 
-import android.media.AudioManager
 import androidx.compose.foundation.selection.selectableGroup
-import android.media.ToneGenerator
-import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -27,10 +24,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -110,6 +107,7 @@ private fun progressText(i: PlanItemView): String {
 @Composable
 fun PlanScreen(
     d: DataController,
+    walkthrough: net.digitalgrease.squib.data.WalkthroughController,
     planId: String,
     onBack: () -> Unit,
     onStartDrill: (DrillView, String, String, Int) -> Unit,
@@ -178,7 +176,7 @@ fun PlanScreen(
         if (adding) AddItemForm(d, p.id, onDone = { adding = false; reload() })
         else OutlinedButton(onClick = { adding = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("add_item")) { Text("+ Add item") }
 
-        WalkthroughTimer()
+        WalkthroughTimer(walkthrough, p.id, p.title)
 
         Text("Checklist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
         ChecklistEditor(d, p.id, p.checklist, reload)
@@ -322,53 +320,63 @@ fun ChecklistTemplateScreen(d: DataController, onBack: () -> Unit) {
  * runs and is not part of run timing. The optional end tone is a notification beep.
  */
 @Composable
-private fun WalkthroughTimer() {
+private fun WalkthroughTimer(w: net.digitalgrease.squib.data.WalkthroughController, planId: String, planTitle: String) {
+    val running by w.state.collectAsState()
     var minutes by remember { mutableStateOf("5") }
-    var endAt by remember { mutableLongStateOf(0L) }
-    var left by remember { mutableLongStateOf(0L) }
     var tone by remember { mutableStateOf(true) }
-    LaunchedEffect(endAt) {
-        if (endAt == 0L) return@LaunchedEffect
-        while (true) {
-            left = (endAt - SystemClock.elapsedRealtime()).coerceAtLeast(0)
-            if (left == 0L) break
-            delay(200)
-        }
-        if (tone) {
-            runCatching {
-                val g = ToneGenerator(AudioManager.STREAM_MUSIC, 90)
-                g.startTone(ToneGenerator.TONE_PROP_BEEP2, 800)
-                delay(1000)
-                g.release()
-            }
-        }
-    }
     Card(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Walkthrough countdown", fontWeight = FontWeight.Bold)
-            if (endAt == 0L) {
+            val mine = running?.takeIf { it.planId == planId }
+            if (mine == null) {
+                running?.let { other ->
+                    Text("A walkthrough for ${other.planTitle} is running (${other.label} left). Starting one here replaces it.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit).take(2) }, label = { Text("Minutes") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f).testTag("walk_minutes"))
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = {
-                        val m = minutes.toIntOrNull()?.coerceIn(1, 60) ?: return@Button
-                        endAt = SystemClock.elapsedRealtime() + m * 60_000L
-                        left = m * 60_000L
-                    }, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_start")) { Text("Start") }
+                        val m = minutes.toIntOrNull() ?: return@Button
+                        w.start(planId, planTitle, m, tone)
+                    }, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_start").spoken("Start walkthrough countdown")) { Text("Start") }
                 }
                 LabeledToggle("Beep at the end", tone, { tone = it })
             } else {
-                val s = (left + 999) / 1000
-                Text(String.format(Locale.US, "%d:%02d", s / 60, s % 60), fontSize = 40.sp, fontWeight = FontWeight.Black,
-                    modifier = Modifier.testTag("walk_left"))
-                if (left == 0L) Text("Time.", style = MaterialTheme.typography.titleMedium)
-                OutlinedButton(onClick = { endAt = 0L }, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_stop")) {
-                    Text(if (left == 0L) "Done" else "Stop")
+                Text(mine.label, fontSize = 40.sp, fontWeight = FontWeight.Black, modifier = Modifier.testTag("walk_left"))
+                if (mine.finished) Text("Time.", style = MaterialTheme.typography.titleMedium)
+                else Text("Keeps counting if you leave this screen.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { w.stop() }, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_stop")) {
+                    Text(if (mine.finished) "Done" else "Stop")
                 }
             }
             Text("Uses the phone clock. Not a shot timer.", style = MaterialTheme.typography.bodySmall)
         }
     }
     Spacer(Modifier.height(4.dp))
+}
+
+/** Compact walkthrough countdown shown on other screens while it runs (plan phase 2.6). */
+@Composable
+fun WalkthroughBanner(w: net.digitalgrease.squib.data.Walkthrough, onOpen: () -> Unit, onStop: () -> Unit) {
+    androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.secondary, contentColor = MaterialTheme.colorScheme.onSecondary,
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().testTag("walk_banner")) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
+            Text(
+                if (w.finished) "Walkthrough time is up · ${w.planTitle}" else "Walkthrough ${w.label} left · ${w.planTitle}",
+                fontWeight = FontWeight.Bold,
+                // Announced once when time is up, not every second while it counts.
+                modifier = Modifier.weight(1f).then(
+                    if (w.finished) Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite } else Modifier,
+                ),
+            )
+            TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp).spoken("Open ${w.planTitle}"),
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSecondary)) { Text("Open") }
+            TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_banner_stop").spoken(if (w.finished) "Dismiss walkthrough" else "Stop walkthrough"),
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSecondary)) {
+                Text(if (w.finished) "Done" else "Stop")
+            }
+        }
+    }
 }
