@@ -203,6 +203,7 @@ private fun StatusLine(view: ConditionsView) {
     val parts = mutableListOf<String>()
     view.lastRefreshUtcMs?.let { parts += "Last update attempt ${fmtDate(it)}" }
     if (view.usedCache) parts += "showing saved data"
+    if (view.retries > 0u) parts += "retried ${view.retries} ${if (view.retries == 1u) "request" else "requests"} after a temporary error"
     if (parts.isNotEmpty()) Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
     view.issues.forEach { Text("• $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 }

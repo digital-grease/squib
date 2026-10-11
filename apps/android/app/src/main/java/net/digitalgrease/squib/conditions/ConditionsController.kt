@@ -8,6 +8,7 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -145,7 +146,9 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
         while (!step.done) {
             if (pending.isEmpty()) break
             val responses = withContext(Dispatchers.IO) {
-                pending.map { r -> async { WeatherTransport.execute(r) } }.awaitAll()
+                // A retry the core scheduled waits its delay first; the core bounds it by
+                // the refresh deadline.
+                pending.map { r -> async { if (r.delayMs > 0u) delay(r.delayMs.toLong()); WeatherTransport.execute(r) } }.awaitAll()
             }
             pending = emptyList()
             for (resp in responses) {
