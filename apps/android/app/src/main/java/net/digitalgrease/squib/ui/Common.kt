@@ -75,6 +75,8 @@ fun startMethodLabel(m: String?): String = when (m) {
     "acoustic_cue" -> "Start: cue heard by microphone"
     "scheduled_render" -> "Start: cue playback time (not microphone-verified)"
     "requested_only" -> "Start: requested time only (degraded)"
+    "vibration_request" -> "Start: vibration requested (not sound; motor delay not measured)"
+    "screen_frame" -> "Start: screen cue frame (not sound; display delay not measured)"
     "unresolved", null -> "Start: unavailable"
     else -> m
 }

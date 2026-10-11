@@ -60,7 +60,15 @@ data class TimerSettings(
     val diagnostic: Boolean = false,
     /** Drill sets: arm the next string after a visible, cancelable countdown. Off per set. */
     val autoRepeat: Boolean = false,
+    /** Par-only start and par cues by sound, vibration, or on screen. Live runs use sound. */
+    val cueChannel: CueChannel = CueChannel.SOUND,
 )
+
+/** A screen cue waiting to be drawn; `seq` makes each cue distinct. */
+data class ScreenCue(val cueId: UInt, val cue: CueType, val seq: Long)
+
+/** Shortest gap between screen cues (core `SCREEN_CUE_MIN_SPACING_MS`). */
+const val SCREEN_CUE_MIN_SPACING_MS = 350
 
 /** The next string of a set is about to arm itself; shown with a Cancel button. */
 data class AutoRepeatCountdown(val nextString: Int, val strings: Int, val secondsLeft: Int)
@@ -97,6 +105,13 @@ fun TimerSettings.validate(): String? {
         if (autoStopCount !in 1..1000) return "Shot count for automatic stop must be 1-1000."
         if (autoStop) return "Choose one automatic stop: after the last par or after a shot count."
     }
+    // Live timing always uses the sound cue it listens for; the choice applies to par-only.
+    if (mode == Mode.PAR_ONLY && cueChannel == CueChannel.SCREEN) {
+        val starts = listOf(0) + parsMs().orEmpty()
+        if (starts.zipWithNext().any { (a, b) -> b - a < SCREEN_CUE_MIN_SPACING_MS }) {
+            return "Screen cues need at least 0.35 s between them so the screen changes at most about three times a second."
+        }
+    }
     if (expectedCountText.isNotBlank() && expectedCountText.trim().toIntOrNull()?.takeIf { it in 1..1000 } == null) {
         return "Expected count must be 1–1000."
     }
@@ -123,6 +138,13 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     private val control = Executors.newSingleThreadExecutor { Thread(it, "squib-control") }.asCoroutineDispatcher()
     private val cueThread = Executors.newSingleThreadExecutor { Thread(it, "squib-cue") }
     private val cuePlayer = CuePlayer(engine)
+    private val vibrator = net.digitalgrease.squib.audio.CueVibrator(app)
+    /** Whether this phone can give vibration cues. */
+    val canVibrate: Boolean = vibrator.available()
+    private val _screenCue = MutableStateFlow<ScreenCue?>(null)
+    /** Screen cue for the Timer to draw; it reports the frame with [screenCueShown]. */
+    val screenCue: StateFlow<ScreenCue?> = _screenCue.asStateFlow()
+    private var screenSeq = 0L
     private var capture: AudioCapture? = null
     private var captureRoute: net.digitalgrease.squib.core.RouteReport? = null
     private var loop: Job? = null
@@ -232,6 +254,7 @@ class SquibController(app: Application) : AndroidViewModel(app) {
             drillVersion = s.drillVersion,
             planItemId = s.planItemId,
             video = s.video,
+            cueChannel = if (s.mode == Mode.PAR_ONLY) s.cueChannel else CueChannel.SOUND,
             diagnosticRoot = if (s.diagnostic && s.mode == Mode.PHONE_LIVE) attachmentRoot.absolutePath else null,
         )
         // One run only: the switch turns itself off once this run is armed.
@@ -257,6 +280,8 @@ class SquibController(app: Application) : AndroidViewModel(app) {
         val delay = i.delay
         _settings.value = TimerSettings(
             video = _settings.value.video,
+            // A cue preference outlasts the drill (live runs still use sound).
+            cueChannel = _settings.value.cueChannel,
             mode = i.mode,
             delayKind = when (delay) {
                 is StartDelay.Instant -> DelayKind.INSTANT
@@ -349,6 +374,15 @@ class SquibController(app: Application) : AndroidViewModel(app) {
     }
 
     @Volatile private var timerVisible = false
+
+    /** The Timer drew a screen cue in the frame starting at `frameNs` (System.nanoTime base). */
+    fun screenCueShown(c: ScreenCue, frameNs: Long) {
+        cueThread.execute { engine.cueRendered(c.cueId, frameNs, System.nanoTime()) }
+    }
+
+    fun screenCueDone(c: ScreenCue) {
+        _screenCue.compareAndSet(c, null)
+    }
 
     /** The Timer screen came on or went off screen; a pending automatic repeat is cancelled. */
     fun onTimerVisible(visible: Boolean) {
@@ -499,9 +533,17 @@ class SquibController(app: Application) : AndroidViewModel(app) {
                 is NativeEffect.PlayCue -> {
                     val id = e.cueId
                     val cue = e.cue
-                    cueThread.execute {
-                        val render = runCatching { cuePlayer.play(cue) }.getOrNull()
-                        engine.cueRendered(id, render, System.nanoTime())
+                    when (e.channel) {
+                        CueChannel.SOUND -> cueThread.execute {
+                            val render = runCatching { cuePlayer.play(cue) }.getOrNull()
+                            engine.cueRendered(id, render, System.nanoTime())
+                        }
+                        // A cue that was not given is not reported, so the core times out
+                        // the start instead of trusting a vibration or screen that never happened.
+                        CueChannel.VIBRATION -> cueThread.execute {
+                            runCatching { vibrator.vibrate(cue) }.getOrNull()?.let { engine.cueRendered(id, it, System.nanoTime()) }
+                        }
+                        CueChannel.SCREEN -> if (timerVisible) _screenCue.value = ScreenCue(id, cue, ++screenSeq)
                     }
                 }
                 is NativeEffect.KeepScreenOn -> _keepScreenOn.value = e.on

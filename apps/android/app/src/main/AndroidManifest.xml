@@ -4,6 +4,8 @@
     <!-- Requested only when the user starts live capture, sensitivity setup, or the cue
          test. Par-only timing never asks. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Vibration start and par cues (opt-in, par-only). A normal permission: no prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Used only for opt-in weather lookups (HTTPS GET to api.weather.gov). The app has
          no upload path. Audio is written only as an opt-in, per-run diagnostic recording,
          and is never sent; exporting it is a separate user action (A18). -->

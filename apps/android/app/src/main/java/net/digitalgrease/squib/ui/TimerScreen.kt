@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -35,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -46,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.digitalgrease.squib.core.AUTO_REPEAT_MIN_S
 import net.digitalgrease.squib.core.AutoRepeatCountdown
+import net.digitalgrease.squib.core.CueChannel
+import net.digitalgrease.squib.core.CueType
+import net.digitalgrease.squib.core.ScreenCue
 import net.digitalgrease.squib.core.DelayKind
 import net.digitalgrease.squib.core.EngineView
 import net.digitalgrease.squib.core.Mode
@@ -75,200 +80,285 @@ fun TimerScreen(
     }
     val editable = !v.active && v.phase !in setOf("saved", "save_pending", "interrupted", "completing")
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("Timer", style = MaterialTheme.typography.headlineMedium)
-        CoachBar(d, locked = v.active, afterRun = v.phase in setOf("saved", "cancelled", "failed"))
-        EquipmentBar(d, locked = v.active)
-        s.planTitle?.let { Text("Plan: $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("plan_banner")) }
-        s.drillTitle?.let { t ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Drill: $t" + if (s.drillRepeats > 1) " · string ${s.stringIndex} of ${s.drillRepeats}" else "",
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f).testTag("drill_banner"),
-                )
-                if (editable) TextButton(onClick = { c.clearDrill() }) { Text("Clear") }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-
-        if (editable) {
-            Text("Mode", style = MaterialTheme.typography.titleMedium)
-            FlowRow {
-                FilterChip(
-                    selected = s.mode == Mode.PAR_ONLY,
-                    onClick = { c.updateSettings { it.copy(mode = Mode.PAR_ONLY) } },
-                    label = { Text("Par-only (no microphone)") },
-                    modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("mode_par"),
-                )
-                FilterChip(
-                    selected = s.mode == Mode.PHONE_LIVE,
-                    onClick = { c.updateSettings { it.copy(mode = Mode.PHONE_LIVE) } },
-                    label = { Text("Live shots (experimental)") },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("mode_live"),
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("video_toggle").toggleable(
-                    value = s.video, role = androidx.compose.ui.semantics.Role.Switch,
-                    onValueChange = { b -> c.updateSettings { it.copy(video = b) } },
-                ),
-            ) {
-                Switch(checked = s.video, onCheckedChange = null)
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text("Record video (experimental)")
-                    Text("Video only, no sound. Clips stay on this phone, take about 20 MB per minute, and are limited to 2 minutes.",
-                        style = MaterialTheme.typography.bodySmall)
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Text("Timer", style = MaterialTheme.typography.headlineMedium)
+            CoachBar(d, locked = v.active, afterRun = v.phase in setOf("saved", "cancelled", "failed"))
+            EquipmentBar(d, locked = v.active)
+            s.planTitle?.let { Text("Plan: $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("plan_banner")) }
+            s.drillTitle?.let { t ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Drill: $t" + if (s.drillRepeats > 1) " · string ${s.stringIndex} of ${s.drillRepeats}" else "",
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f).testTag("drill_banner"),
+                    )
+                    if (editable) TextButton(onClick = { c.clearDrill() }) { Text("Clear") }
                 }
             }
-            if (s.mode == Mode.PHONE_LIVE) {
+            Spacer(Modifier.height(8.dp))
+
+            if (editable) {
+                Text("Mode", style = MaterialTheme.typography.titleMedium)
+                FlowRow {
+                    FilterChip(
+                        selected = s.mode == Mode.PAR_ONLY,
+                        onClick = { c.updateSettings { it.copy(mode = Mode.PAR_ONLY) } },
+                        label = { Text("Par-only (no microphone)") },
+                        modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("mode_par"),
+                    )
+                    FilterChip(
+                        selected = s.mode == Mode.PHONE_LIVE,
+                        onClick = { c.updateSettings { it.copy(mode = Mode.PHONE_LIVE) } },
+                        label = { Text("Live shots (experimental)") },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("mode_live"),
+                    )
+                }
+                CueChannelChooser(s.mode, s.cueChannel, c.canVibrate) { ch -> c.updateSettings { it.copy(cueChannel = ch) } }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("diagnostic_toggle").toggleable(
-                        value = s.diagnostic, role = androidx.compose.ui.semantics.Role.Switch,
-                        onValueChange = { b -> c.updateSettings { it.copy(diagnostic = b) } },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("video_toggle").toggleable(
+                        value = s.video, role = androidx.compose.ui.semantics.Role.Switch,
+                        onValueChange = { b -> c.updateSettings { it.copy(video = b) } },
                     ),
                 ) {
-                    Switch(checked = s.diagnostic, onCheckedChange = null)
+                    Switch(checked = s.video, onCheckedChange = null)
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text("Keep a diagnostic recording of the next run")
-                        Text("Saves this run's microphone audio on this phone (up to 60 s, about 5.8 MB per minute) so you can listen " +
-                            "back and, if you choose, export it to help improve shot detection. It may capture voices nearby. " +
-                            "Turns itself off after one run.", style = MaterialTheme.typography.bodySmall)
+                        Text("Record video (experimental)")
+                        Text("Video only, no sound. Clips stay on this phone, take about 20 MB per minute, and are limited to 2 minutes.",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Start delay (max 30 s)", style = MaterialTheme.typography.titleMedium)
-            FlowRow {
-                for (k in DelayKind.entries) {
-                    FilterChip(
-                        selected = s.delayKind == k,
-                        onClick = { c.updateSettings { it.copy(delayKind = k) } },
-                        label = { Text(k.name.lowercase().replaceFirstChar { ch -> ch.uppercase() }) },
-                        modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("delay_${k.name.lowercase()}"),
-                    )
+                if (s.mode == Mode.PHONE_LIVE) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("diagnostic_toggle").toggleable(
+                            value = s.diagnostic, role = androidx.compose.ui.semantics.Role.Switch,
+                            onValueChange = { b -> c.updateSettings { it.copy(diagnostic = b) } },
+                        ),
+                    ) {
+                        Switch(checked = s.diagnostic, onCheckedChange = null)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Keep a diagnostic recording of the next run")
+                            Text("Saves this run's microphone audio on this phone (up to 60 s, about 5.8 MB per minute) so you can listen " +
+                                "back and, if you choose, export it to help improve shot detection. It may capture voices nearby. " +
+                                "Turns itself off after one run.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
-            }
-            when (s.delayKind) {
-                DelayKind.FIXED -> SecondsField("Delay (s)", s.fixedMs) { ms -> c.updateSettings { it.copy(fixedMs = ms) } }
-                DelayKind.RANDOM -> Row {
-                    Box(Modifier.weight(1f)) { SecondsField("Min (s)", s.randomMinMs) { ms -> c.updateSettings { it.copy(randomMinMs = ms) } } }
-                    Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f)) { SecondsField("Max (s)", s.randomMaxMs) { ms -> c.updateSettings { it.copy(randomMaxMs = ms) } } }
+                Spacer(Modifier.height(8.dp))
+                Text("Start delay (max 30 s)", style = MaterialTheme.typography.titleMedium)
+                FlowRow {
+                    for (k in DelayKind.entries) {
+                        FilterChip(
+                            selected = s.delayKind == k,
+                            onClick = { c.updateSettings { it.copy(delayKind = k) } },
+                            label = { Text(k.name.lowercase().replaceFirstChar { ch -> ch.uppercase() }) },
+                            modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("delay_${k.name.lowercase()}"),
+                        )
+                    }
                 }
-                DelayKind.INSTANT -> {}
-            }
-            OutlinedTextField(
-                value = s.parsText,
-                onValueChange = { t -> c.updateSettings { it.copy(parsText = t) } },
-                label = { Text("Par times (s), e.g. 2.0, 3.5") },
-                modifier = Modifier.fillMaxWidth().testTag("pars"),
-                singleLine = true,
-            )
-            if (!s.parsMs().isNullOrEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Switch(checked = s.autoStop, onCheckedChange = { b -> c.updateSettings { it.copy(autoStop = b, autoStopCount = if (b) null else it.autoStopCount) } }, modifier = Modifier.testTag("auto_stop_switch"))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Auto stop 1 s after last par")
-                }
-            }
-            if (s.drillId != null && s.drillRepeats > 1) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Switch(
-                        checked = s.autoRepeat,
-                        onCheckedChange = { b -> c.updateSettings { it.copy(autoRepeat = b) } },
-                        modifier = Modifier.testTag("auto_repeat_switch"),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Arm the next string automatically")
-                }
-                if (s.autoRepeat) {
-                    Text("After each complete string, a countdown of the rest (at least $AUTO_REPEAT_MIN_S s) is shown with a Cancel button, " +
-                        "then the next string arms with a new start delay. It stops after the last string, after a string that did not " +
-                        "complete, or when you leave the Timer.",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            if (s.mode == Mode.PHONE_LIVE) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Switch(
-                        checked = s.autoStopCount != null,
-                        onCheckedChange = { b -> c.updateSettings { it.copy(autoStopCount = if (b) (it.autoStopCount ?: 3) else null, autoStop = if (b) false else it.autoStop) } },
-                        modifier = Modifier.testTag("auto_stop_count_switch"),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Stop automatically after a number of shots")
-                }
-                s.autoStopCount?.let { n ->
-                    OutlinedTextField(
-                        value = n.toString(),
-                        onValueChange = { t -> c.updateSettings { it.copy(autoStopCount = t.filter(Char::isDigit).take(4).toIntOrNull() ?: 0) } },
-                        label = { Text("Shots before stopping") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("auto_stop_count"),
-                        singleLine = true,
-                    )
-                    Text("Stops about 1 s after the detector accepts shot $n; a shot within that second still counts. " +
-                        "Missed or extra detections change when it stops, so check the result in review.",
-                        style = MaterialTheme.typography.bodySmall)
+                when (s.delayKind) {
+                    DelayKind.FIXED -> SecondsField("Delay (s)", s.fixedMs) { ms -> c.updateSettings { it.copy(fixedMs = ms) } }
+                    DelayKind.RANDOM -> Row {
+                        Box(Modifier.weight(1f)) { SecondsField("Min (s)", s.randomMinMs) { ms -> c.updateSettings { it.copy(randomMinMs = ms) } } }
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) { SecondsField("Max (s)", s.randomMaxMs) { ms -> c.updateSettings { it.copy(randomMaxMs = ms) } } }
+                    }
+                    DelayKind.INSTANT -> {}
                 }
                 OutlinedTextField(
-                    value = s.expectedCountText,
-                    onValueChange = { t -> c.updateSettings { it.copy(expectedCountText = t.filter(Char::isDigit).take(4)) } },
-                    label = { Text("Expected shots (review hint only)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
+                    value = s.parsText,
+                    onValueChange = { t -> c.updateSettings { it.copy(parsText = t) } },
+                    label = { Text("Par times (s), e.g. 2.0, 3.5") },
+                    modifier = Modifier.fillMaxWidth().testTag("pars"),
                     singleLine = true,
                 )
-                SensitivityRow(s.manualThresholdDb, pf?.calibrationThresholdDb, pf?.calibrationLabel) { t ->
-                    c.updateSettings { it.copy(manualThresholdDb = t) }
-                }
-                Row {
-                    OutlinedButton(onClick = onSetup, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sensitivity setup & cue test") }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            pf?.let { p ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            when (p.level) {
-                                RouteLevel.QUALIFIED -> "Route: qualified"
-                                RouteLevel.EXPERIMENTAL -> "Route: experimental (not field-qualified)"
-                                RouteLevel.UNSUPPORTED -> "Route: not usable for this mode"
-                            },
-                            fontWeight = FontWeight.Bold,
-                            color = if (p.level == RouteLevel.UNSUPPORTED) MaterialTheme.colorScheme.error else Color.Unspecified,
-                        )
-                        p.messages.forEach { m -> Text("• $m", style = MaterialTheme.typography.bodyMedium) }
+                if (!s.parsMs().isNullOrEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Switch(checked = s.autoStop, onCheckedChange = { b -> c.updateSettings { it.copy(autoStop = b, autoStopCount = if (b) null else it.autoStopCount) } }, modifier = Modifier.testTag("auto_stop_switch"))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Auto stop 1 s after last par")
                     }
                 }
+                if (s.drillId != null && s.drillRepeats > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Switch(
+                            checked = s.autoRepeat,
+                            onCheckedChange = { b -> c.updateSettings { it.copy(autoRepeat = b) } },
+                            modifier = Modifier.testTag("auto_repeat_switch"),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Arm the next string automatically")
+                    }
+                    if (s.autoRepeat) {
+                        Text("After each complete string, a countdown of the rest (at least $AUTO_REPEAT_MIN_S s) is shown with a Cancel button, " +
+                            "then the next string arms with a new start delay. It stops after the last string, after a string that did not " +
+                            "complete, or when you leave the Timer.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (s.mode == Mode.PHONE_LIVE) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Switch(
+                            checked = s.autoStopCount != null,
+                            onCheckedChange = { b -> c.updateSettings { it.copy(autoStopCount = if (b) (it.autoStopCount ?: 3) else null, autoStop = if (b) false else it.autoStop) } },
+                            modifier = Modifier.testTag("auto_stop_count_switch"),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Stop automatically after a number of shots")
+                    }
+                    s.autoStopCount?.let { n ->
+                        OutlinedTextField(
+                            value = n.toString(),
+                            onValueChange = { t -> c.updateSettings { it.copy(autoStopCount = t.filter(Char::isDigit).take(4).toIntOrNull() ?: 0) } },
+                            label = { Text("Shots before stopping") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth().testTag("auto_stop_count"),
+                            singleLine = true,
+                        )
+                        Text("Stops about 1 s after the detector accepts shot $n; a shot within that second still counts. " +
+                            "Missed or extra detections change when it stops, so check the result in review.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedTextField(
+                        value = s.expectedCountText,
+                        onValueChange = { t -> c.updateSettings { it.copy(expectedCountText = t.filter(Char::isDigit).take(4)) } },
+                        label = { Text("Expected shots (review hint only)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    SensitivityRow(s.manualThresholdDb, pf?.calibrationThresholdDb, pf?.calibrationLabel) { t ->
+                        c.updateSettings { it.copy(manualThresholdDb = t) }
+                    }
+                    Row {
+                        OutlinedButton(onClick = onSetup, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sensitivity setup & cue test") }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                pf?.let { p ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(
+                                when (p.level) {
+                                    RouteLevel.QUALIFIED -> "Route: qualified"
+                                    RouteLevel.EXPERIMENTAL -> "Route: experimental (not field-qualified)"
+                                    RouteLevel.UNSUPPORTED -> "Route: not usable for this mode"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                color = if (p.level == RouteLevel.UNSUPPORTED) MaterialTheme.colorScheme.error else Color.Unspecified,
+                            )
+                            p.messages.forEach { m -> Text("• $m", style = MaterialTheme.typography.bodyMedium) }
+                        }
+                    }
+                }
+                s.validate()?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
             }
-            s.validate()?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
-        }
 
-        if (s.video) VideoPreview(c)
-        Spacer(Modifier.height(12.dp))
-        StatusPanel(v, s.autoStopCount.takeIf { s.mode == Mode.PHONE_LIVE })
-        Spacer(Modifier.height(12.dp))
-        MainAction(v, s.validate() == null && (pf?.canArm != false), onArm = {
-            val armNow = { if (s.video) onRequestCamera { c.arm() } else c.arm() }
-            if (s.mode == Mode.PHONE_LIVE) onRequestMic { armNow() } else armNow()
-        }, c = c)
-
-        if (v.phase in setOf("saved", "save_pending", "cancelled", "failed")) {
+            if (s.video) VideoPreview(c)
             Spacer(Modifier.height(12.dp))
-            val next = countdown
-            if (next != null && v.phase == "saved") {
-                AutoRepeatPanel(next) { c.cancelAutoRepeat() }
-            } else if (s.drillId != null && s.drillRestS > 0 && s.stringIndex < s.drillRepeats && v.phase == "saved") {
-                RestCountdown(s.drillRestS, v.runId)
+            StatusPanel(v, s.autoStopCount.takeIf { s.mode == Mode.PHONE_LIVE })
+            Spacer(Modifier.height(12.dp))
+            MainAction(v, s.validate() == null && (pf?.canArm != false), onArm = {
+                val armNow = { if (s.video) onRequestCamera { c.arm() } else c.arm() }
+                if (s.mode == Mode.PHONE_LIVE) onRequestMic { armNow() } else armNow()
+            }, c = c)
+
+            if (v.phase in setOf("saved", "save_pending", "cancelled", "failed")) {
+                Spacer(Modifier.height(12.dp))
+                val next = countdown
+                if (next != null && v.phase == "saved") {
+                    AutoRepeatPanel(next) { c.cancelAutoRepeat() }
+                } else if (s.drillId != null && s.drillRestS > 0 && s.stringIndex < s.drillRepeats && v.phase == "saved") {
+                    RestCountdown(s.drillRestS, v.runId)
+                }
+                ResultActions(v, c, onReview)
             }
-            ResultActions(v, c, onReview)
+        }
+        ScreenCueOverlay(c)
+    }
+}
+
+/**
+ * Par-only cue choice (plan phase 2.3). Each choice is its own start method and is
+ * labelled with what the start time means; live timing always uses the sound cue.
+ */
+@Composable
+private fun CueChannelChooser(mode: Mode, channel: CueChannel, canVibrate: Boolean, onChange: (CueChannel) -> Unit) {
+    if (mode != Mode.PAR_ONLY) {
+        if (channel != CueChannel.SOUND) {
+            Text("Live timing uses the sound cue, which it listens for.", style = MaterialTheme.typography.bodySmall)
+        }
+        return
+    }
+    Text("Start and par cues", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+    FlowRow {
+        listOf(CueChannel.SOUND to "Sound", CueChannel.VIBRATION to "Vibration", CueChannel.SCREEN to "Screen").forEach { (ch, label) ->
+            FilterChip(
+                selected = channel == ch,
+                onClick = { onChange(ch) },
+                enabled = ch != CueChannel.VIBRATION || canVibrate,
+                label = { Text(label) },
+                modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("cue_${ch.name.lowercase()}"),
+            )
+        }
+    }
+    val note = when (channel) {
+        CueChannel.SOUND -> null
+        CueChannel.VIBRATION -> "Vibration only, no sound. The start time is when Squib asked the phone to vibrate; " +
+            "the motor takes a little longer, which is not measured. Your phone's vibration settings apply."
+        CueChannel.SCREEN -> "The screen shows GO in green at the start and PAR in amber at each par, with no sound. " +
+            "The start time is the frame the signal was drawn in; the display shows it slightly later, which is not measured. " +
+            "Keep the Timer in view: a cue that cannot be shown is not counted as a start."
+    }
+    note?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("cue_note")) }
+    if (channel == CueChannel.VIBRATION && !canVibrate) {
+        Text("This phone has no vibration motor.", color = MaterialTheme.colorScheme.error)
+    }
+}
+
+/**
+ * Draws screen cues. The start time reported is the frame time of the frame that first
+ * draws the cue, read during that frame's draw pass (`View.getDrawingTime`, the frame's
+ * Choreographer time in milliseconds on the same monotonic clock as `System.nanoTime`).
+ */
+@Composable
+private fun ScreenCueOverlay(c: SquibController) {
+    val pending by c.screenCue.collectAsState()
+    var shown by remember { mutableStateOf<ScreenCue?>(null) }
+    val reported = remember { longArrayOf(-1L) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.LaunchedEffect(pending) {
+        val p = pending ?: return@LaunchedEffect
+        shown = p
+        // Held longer than the sound so it can be seen; a newer cue replaces it at once.
+        kotlinx.coroutines.delay(if (p.cue == CueType.START) 600L else 400L)
+        shown = null
+        c.screenCueDone(p)
+    }
+    shown?.let { cue ->
+        val start = cue.cue == CueType.START
+        Box(
+            Modifier.fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    if (reported[0] != cue.seq) {
+                        reported[0] = cue.seq
+                        val now = System.nanoTime()
+                        val frameNs = view.drawingTime * 1_000_000L
+                        // Outside a real frame the drawing time is stale: use now instead.
+                        c.screenCueShown(cue, if (frameNs in (now - 1_000_000_000L)..now) frameNs else now)
+                    }
+                }
+                .background(if (start) Color(0xFF00C853) else Color(0xFFFFAB00))
+                .semantics { liveRegion = LiveRegionMode.Assertive }
+                .testTag(if (start) "screen_cue_start" else "screen_cue_par"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (start) "GO" else "PAR", color = Color.Black, fontSize = 120.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -414,6 +504,11 @@ private fun StatusPanel(v: EngineView, autoStopCount: Int? = null) {
             }
             if (v.parsTotal > 0u && (running || v.phase == "saved")) {
                 Text("Par cues played: ${v.parsPlayed}/${v.parsTotal}",
+                    color = if (running) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+            }
+            // Vibration and screen starts are their own methods; say so wherever the run is shown.
+            if (v.startMethod in setOf("vibration_request", "screen_frame") && (running || v.phase == "saved")) {
+                Text(startMethodLabel(v.startMethod), modifier = Modifier.testTag("start_method"),
                     color = if (running) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
             }
             if (v.qualityLabels.isNotEmpty()) {
