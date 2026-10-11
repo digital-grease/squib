@@ -11,11 +11,14 @@
 //! - `par_only`: the platform playback timestamp of the cue's first frame
 //!   (`ScheduledRender`), or only the request time when that is unavailable
 //!   (`RequestedOnly`, degraded and labelled). Never claimed as microphone-verified.
+//!   With a vibration cue the start is the time the app asked the vibrator to start
+//!   (`VibrationRequest`); with a screen cue it is the frame-clock time of the first frame
+//!   showing the signal (`ScreenFrame`, or `RequestedOnly` without a frame time).
 
 use serde::{Deserialize, Serialize};
 use squib_domain::{
-    CueKind, NS_PER_MS, Outcome, PersistState, QualityEvent, QualityKind, RunConfig, Severity, SourceMode, StartReferenceMethod,
-    StopPolicy,
+    CueChannel, CueKind, NS_PER_MS, Outcome, PersistState, QualityEvent, QualityKind, RunConfig, Severity, SourceMode,
+    StartReferenceMethod, StopPolicy,
 };
 
 /// A start cue played this late after its deadline is reported (diagnostic).
@@ -166,6 +169,8 @@ pub enum Effect {
     PlayCue {
         cue_id: u32,
         kind: CueKind,
+        /// How to give the cue: sound, vibration, or on screen (`RunConfig::cue_channel`).
+        channel: CueChannel,
         par_index: Option<u32>,
         requested_ns: i64,
     },
@@ -296,6 +301,10 @@ impl RunMachine {
 
     fn mode(&self) -> Option<SourceMode> {
         self.config.as_ref().map(|c| c.source_mode)
+    }
+
+    fn channel(&self) -> CueChannel {
+        self.config.as_ref().map(|c| c.cue_channel).unwrap_or_default()
     }
 
     fn par_deadline(&self, i: usize) -> Option<i64> {
@@ -589,7 +598,13 @@ impl RunMachine {
                 });
                 self.cue_busy_until_ns = now_ns + i64::from(CueKind::Start.duration_ms()) * NS_PER_MS;
                 self.phase = Phase::AwaitingCue;
-                fx.push(Effect::PlayCue { cue_id: START_CUE_ID, kind: CueKind::Start, par_index: None, requested_ns: deadline });
+                fx.push(Effect::PlayCue {
+                    cue_id: START_CUE_ID,
+                    kind: CueKind::Start,
+                    channel: self.channel(),
+                    par_index: None,
+                    requested_ns: deadline,
+                });
             }
             Phase::AwaitingCue => {
                 let Some(c) = self.cues.first() else { return };
@@ -660,7 +675,13 @@ impl RunMachine {
                     }
                     self.cues.push(rec);
                     self.cue_busy_until_ns = now_ns + i64::from(CueKind::Par.duration_ms()) * NS_PER_MS;
-                    fx.push(Effect::PlayCue { cue_id, kind: CueKind::Par, par_index: Some(i as u32), requested_ns: deadline });
+                    fx.push(Effect::PlayCue {
+                        cue_id,
+                        kind: CueKind::Par,
+                        channel: self.channel(),
+                        par_index: Some(i as u32),
+                        requested_ns: deadline,
+                    });
                     break; // at most one cue starts per tick
                 }
                 if self.auto_stop_ns.is_some_and(|t| now_ns >= t) {
@@ -712,9 +733,14 @@ impl RunMachine {
                     render_known: render_ns.is_some(),
                 });
             } else {
-                match render_ns {
-                    Some(r) => self.begin_running(StartReferenceMethod::ScheduledRender, Some(r), None),
-                    None => self.begin_running(StartReferenceMethod::RequestedOnly, Some(issued), None),
+                // Each cue channel is its own origin method; none is promoted to another.
+                match (self.channel(), render_ns) {
+                    (CueChannel::Sound, Some(r)) => self.begin_running(StartReferenceMethod::ScheduledRender, Some(r), None),
+                    (CueChannel::Vibration, r) => {
+                        self.begin_running(StartReferenceMethod::VibrationRequest, Some(r.unwrap_or(issued)), None)
+                    }
+                    (CueChannel::Screen, Some(r)) => self.begin_running(StartReferenceMethod::ScreenFrame, Some(r), None),
+                    (_, None) => self.begin_running(StartReferenceMethod::RequestedOnly, Some(issued), None),
                 }
             }
         } else if mic && self.phase == Phase::Running {
@@ -756,7 +782,17 @@ mod tests {
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
             diagnostic_recording: false,
+            cue_channel: CueChannel::Sound,
             app_build: "test".into(),
+        }
+    }
+
+    fn with_channel(ch: CueChannel) -> RunConfig {
+        RunConfig {
+            cue_channel: ch,
+            start_cue_template: ch.template(CueKind::Start).into(),
+            par_cue_template: ch.template(CueKind::Par).into(),
+            ..cfg(SourceMode::ParOnly, 0, vec![1000], StopPolicy::Manual)
         }
     }
 
@@ -812,6 +848,31 @@ mod tests {
         m.handle(Input::IntentPersisted { ok: true, error: None, now_ns: 5 }).unwrap();
         let fx = m.handle(Input::Tick { now_ns: 5 }).unwrap();
         assert!(fx.iter().any(|e| matches!(e, Effect::PlayCue { .. })));
+    }
+
+    #[test]
+    fn vibration_and_screen_starts_are_their_own_origin_methods() {
+        let start = |ch: CueChannel, render: Option<i64>| {
+            let mut m = RunMachine::new();
+            arm(&mut m, with_channel(ch), 0);
+            m.handle(Input::IntentPersisted { ok: true, error: None, now_ns: 1 }).unwrap();
+            let fx = m.handle(Input::Tick { now_ns: 2 }).unwrap();
+            assert!(fx.iter().any(|e| matches!(e, Effect::PlayCue { kind: CueKind::Start, channel, .. } if *channel == ch)));
+            m.handle(Input::CueRendered { cue_id: 0, render_ns: render, now_ns: 10 }).unwrap();
+            assert_eq!(m.phase, Phase::Running);
+            let fx = m.handle(Input::Tick { now_ns: 20 + 1_000 * MS }).unwrap();
+            assert!(
+                fx.iter().any(|e| matches!(e, Effect::PlayCue { kind: CueKind::Par, channel, .. } if *channel == ch)),
+                "par cues use the same channel"
+            );
+            (m.start_method, m.start_ref_ns)
+        };
+        assert_eq!(start(CueChannel::Vibration, Some(5)), (Some(StartReferenceMethod::VibrationRequest), Some(5)));
+        // Without the call time, the request time is used and the method still says vibration.
+        assert_eq!(start(CueChannel::Vibration, None), (Some(StartReferenceMethod::VibrationRequest), Some(2)));
+        assert_eq!(start(CueChannel::Screen, Some(6)), (Some(StartReferenceMethod::ScreenFrame), Some(6)));
+        assert_eq!(start(CueChannel::Screen, None), (Some(StartReferenceMethod::RequestedOnly), Some(2)));
+        assert_eq!(start(CueChannel::Sound, Some(7)), (Some(StartReferenceMethod::ScheduledRender), Some(7)));
     }
 
     #[test]

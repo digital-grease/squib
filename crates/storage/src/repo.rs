@@ -8,7 +8,7 @@ use squib_domain::{
 use squib_timing::envelope::{ENVELOPE_VERSION, EnvelopeChunk};
 
 use crate::records::*;
-use crate::{MIGRATIONS, Result, SCHEMA_VERSION, StorageError};
+use crate::{MIGRATIONS, REBUILD_MIGRATIONS, Result, SCHEMA_VERSION, StorageError};
 
 pub const DEFAULT_SHOOTER_ID: &str = "default";
 
@@ -88,6 +88,25 @@ impl Repository {
         user_version(&self.conn)
     }
 
+    /// One migration in one transaction. A rebuild checks foreign keys before commit, since
+    /// they are off while it runs.
+    fn apply_migration(conn: &mut Connection, version: u32, sql: &str, rebuild: bool) -> Result<()> {
+        let fail = |e: rusqlite::Error| StorageError::Migration { version, message: e.to_string() };
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql).map_err(fail)?;
+        if rebuild {
+            let broken = tx.prepare("PRAGMA foreign_key_check").and_then(|mut st| st.exists([])).map_err(fail)?;
+            if broken {
+                return Err(StorageError::Migration { version, message: "foreign key violations after rebuild".into() });
+            }
+        }
+        tx.pragma_update(None, "user_version", version).map_err(fail)?;
+        tx.execute("INSERT OR REPLACE INTO app_meta(key, value) VALUES ('schema_migrated_to', ?1)", params![version.to_string()])
+            .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        Ok(())
+    }
+
     fn migrate(&mut self, existed: bool) -> Result<()> {
         let current = user_version(&self.conn)?;
         if current > SCHEMA_VERSION {
@@ -109,16 +128,15 @@ impl Repository {
             if version <= current {
                 continue;
             }
-            let tx = self.conn.transaction()?;
-            tx.execute_batch(sql).map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
-            tx.pragma_update(None, "user_version", version)
-                .map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
-            tx.execute(
-                "INSERT OR REPLACE INTO app_meta(key, value) VALUES ('schema_migrated_to', ?1)",
-                params![version.to_string()],
-            )
-            .map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
-            tx.commit().map_err(|e| StorageError::Migration { version, message: e.to_string() })?;
+            let rebuild = REBUILD_MIGRATIONS.contains(&version);
+            if rebuild {
+                self.conn.pragma_update(None, "foreign_keys", "OFF")?;
+            }
+            let applied = Self::apply_migration(&mut self.conn, version, sql, rebuild);
+            if rebuild {
+                self.conn.pragma_update(None, "foreign_keys", "ON")?;
+            }
+            applied?;
         }
         let reached = user_version(&self.conn)?;
         if reached != SCHEMA_VERSION {

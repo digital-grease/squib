@@ -161,6 +161,7 @@ fn a13_runs_pin_redacted_snapshots_that_later_refreshes_do_not_change() {
         drill_version: None,
         plan_item_id: None,
         video: false,
+        cue_channel: CueChannel::Sound,
         diagnostic_root: None,
     };
     let v = e.arm("a1".into(), req, 1_000_000_000).unwrap();
@@ -206,6 +207,7 @@ fn precise_retention_is_opt_in() {
         drill_version: None,
         plan_item_id: None,
         video: false,
+        cue_channel: CueChannel::Sound,
         diagnostic_root: None,
     };
     let run_id = e.arm("a1".into(), req, 1_000_000_000).unwrap().run_id.unwrap();

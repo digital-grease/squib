@@ -34,6 +34,7 @@ fn arm_req() -> ArmRequest {
         drill_version: None,
         plan_item_id: None,
         video: false,
+        cue_channel: CueChannel::Sound,
         diagnostic_root: None,
     }
 }

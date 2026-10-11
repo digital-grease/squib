@@ -58,6 +58,7 @@ struct Sim {
     utc: i64,
     diag_root: Option<String>,
     auto_stop_count: Option<u32>,
+    cue_channel: CueChannel,
 }
 
 impl Sim {
@@ -81,6 +82,7 @@ impl Sim {
             utc: 1_700_000_000_000,
             diag_root: None,
             auto_stop_count: None,
+            cue_channel: CueChannel::Sound,
         }
     }
 
@@ -108,6 +110,7 @@ impl Sim {
             drill_version: None,
             plan_item_id: None,
             video: false,
+            cue_channel: self.cue_channel,
             diagnostic_root: self.diag_root.clone(),
         };
         let v = self.eng.arm(format!("arm-{}", self.utc), req, self.now()).unwrap();
@@ -132,7 +135,15 @@ impl Sim {
                     self.handle = self.eng.capture_started(meta, self.now()).unwrap();
                 }
                 NativeEffect::StopCapture => self.handle = 0,
-                NativeEffect::PlayCue { cue_id, cue } => {
+                NativeEffect::PlayCue { cue_id, channel: CueChannel::Vibration, .. } => {
+                    // Vibration: the adapter reports the time it asked the vibrator to start.
+                    self.eng.cue_rendered(*cue_id, Some(self.now()), self.now());
+                }
+                NativeEffect::PlayCue { cue_id, channel: CueChannel::Screen, .. } => {
+                    // Screen: the frame time of the first frame showing the signal.
+                    self.eng.cue_rendered(*cue_id, Some(self.now() + 16 * 1_000_000), self.now());
+                }
+                NativeEffect::PlayCue { cue_id, cue, channel: CueChannel::Sound } => {
                     // Simulated output latency: cue reaches the mic 12 ms after now;
                     // platform render timestamp reports 10 ms (2 ms acoustic path).
                     let render_frame = self.frame + (RATE as i64) * 10 / 1000;
@@ -272,6 +283,55 @@ fn a01_a02_par_only_runs_offline_without_microphone() {
     let r = s.eng.load_review(runs[0].run_id.clone()).unwrap();
     assert_eq!(r.count, 0);
     assert!(r.energy_db.is_empty(), "no audio captured in par-only");
+}
+
+#[test]
+fn vibration_and_screen_cues_are_par_only_and_saved_as_their_own_start_methods() {
+    for (ch, method) in [(CueChannel::Vibration, "vibration_request"), (CueChannel::Screen, "screen_frame")] {
+        let mut s = Sim::new(&format!("cue-{method}"));
+        s.cue_channel = ch;
+        // Shot timing needs the sound cue it listens for.
+        let live = s.eng.arm(
+            "live".into(),
+            ArmRequest {
+                mode: Mode::PhoneLive,
+                delay: StartDelay::Instant,
+                unit_random: 0.0,
+                pars_ms: vec![],
+                auto_stop_grace_ms: None,
+                auto_stop_count: None,
+                expected_count: None,
+                threshold_db: None,
+                calibration_id: None,
+                route: Some(route()),
+                now_utc_ms: s.utc,
+                tz_offset_min: 0,
+                app_build: "test".into(),
+                expected_rate_hz: RATE,
+                drill_id: None,
+                drill_version: None,
+                plan_item_id: None,
+                video: false,
+                cue_channel: ch,
+                diagnostic_root: None,
+            },
+            s.now(),
+        );
+        assert!(live.is_err(), "{ch:?} cues are par-only");
+
+        s.arm(Mode::ParOnly, StartDelay::Fixed { ms: 500 }, vec![1000], None);
+        s.settle("running");
+        let v = s.views.iter().rev().find(|v| v.phase == "running").unwrap();
+        assert_eq!(v.start_method.as_deref(), Some(method));
+        s.run_ms(1300);
+        s.eng.stop("stop".into(), s.now()).unwrap();
+        let v = s.settle("saved");
+        assert_eq!(v.pars_played, 1, "par cues use the same channel and still play");
+        let runs = s.eng.list_runs(10).unwrap();
+        assert_eq!(runs[0].start_method.as_deref(), Some(method));
+        assert_eq!(s.eng.load_review(runs[0].run_id.clone()).unwrap().start_method.as_deref(), Some(method));
+        assert!(s.eng.export_csv().unwrap().contains(method), "exports name the method");
+    }
 }
 
 #[test]
@@ -668,6 +728,7 @@ fn diagnostic_recording_is_opt_in_exact_and_exports_only_with_consent() {
             drill_version: None,
             plan_item_id: None,
             video: false,
+            cue_channel: CueChannel::Sound,
             diagnostic_root: Some(root_s.clone()),
         },
         s.now(),

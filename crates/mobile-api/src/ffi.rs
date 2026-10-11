@@ -50,6 +50,35 @@ impl From<CueKind> for CueType {
     }
 }
 
+/// How the start and par cues are given. Vibration and screen are par-only and are
+/// recorded as their own start methods (plan phase 2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CueChannel {
+    Sound,
+    Vibration,
+    Screen,
+}
+
+impl From<CueChannel> for squib_domain::CueChannel {
+    fn from(c: CueChannel) -> Self {
+        match c {
+            CueChannel::Sound => squib_domain::CueChannel::Sound,
+            CueChannel::Vibration => squib_domain::CueChannel::Vibration,
+            CueChannel::Screen => squib_domain::CueChannel::Screen,
+        }
+    }
+}
+
+impl From<squib_domain::CueChannel> for CueChannel {
+    fn from(c: squib_domain::CueChannel) -> Self {
+        match c {
+            squib_domain::CueChannel::Sound => CueChannel::Sound,
+            squib_domain::CueChannel::Vibration => CueChannel::Vibration,
+            squib_domain::CueChannel::Screen => CueChannel::Screen,
+        }
+    }
+}
+
 impl From<CueType> for CueKind {
     fn from(k: CueType) -> Self {
         match k {
@@ -132,6 +161,8 @@ pub struct ArmRequest {
     pub plan_item_id: Option<String>,
     /// Opt-in: the platform records a video clip (no audio track) for this run.
     pub video: bool,
+    /// Sound unless the shooter chose a vibration or screen cue (par-only).
+    pub cue_channel: CueChannel,
     /// Opt-in diagnostic recording: the app's attachment directory to write it under.
     /// `None` keeps the default (no audio is saved).
     pub diagnostic_root: Option<String>,
@@ -149,10 +180,21 @@ pub struct CaptureMeta {
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum NativeEffect {
-    StartCapture { preferred_rate_hz: u32 },
+    StartCapture {
+        preferred_rate_hz: u32,
+    },
     StopCapture,
-    PlayCue { cue_id: u32, cue: CueType },
-    KeepScreenOn { on: bool },
+    /// Give a cue now on `channel`, then report it with `cue_rendered`: for sound the
+    /// playback time of its first frame, for vibration the time the vibrator was asked to
+    /// start, for screen the frame time of the first frame showing it.
+    PlayCue {
+        cue_id: u32,
+        cue: CueType,
+        channel: CueChannel,
+    },
+    KeepScreenOn {
+        on: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

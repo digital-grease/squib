@@ -14,6 +14,9 @@ pub const MAX_PARS: usize = 10;
 pub const PAR_MAX_MS: u32 = 600_000;
 /// Silence required between the end of one app cue and the start of the next.
 pub const CUE_GAP_MS: u32 = 100;
+/// Screen cues start at least this far apart, so the screen never changes more than about
+/// three times a second (the usual photosensitive-seizure guideline).
+pub const SCREEN_CUE_MIN_SPACING_MS: u32 = 350;
 /// Grace after the last par before an `AfterLastPar` auto stop.
 pub const AUTO_STOP_GRACE_MAX_MS: u32 = 10_000;
 
@@ -54,6 +57,53 @@ impl CueKind {
         match s {
             "start" => Some(CueKind::Start),
             "par" => Some(CueKind::Par),
+            _ => None,
+        }
+    }
+}
+
+/// How the app gives its start and par cues (docs/squib/01 accessibility, 04 "Start and
+/// par cues"). Each channel is a distinct origin method: a vibration or screen start is
+/// never treated as an acoustic start. Non-sound channels are par-only for now, and every
+/// channel keeps the sound template's duration so par spacing rules stay the same.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CueChannel {
+    #[default]
+    Sound,
+    Vibration,
+    Screen,
+}
+
+impl CueChannel {
+    pub fn is_sound(&self) -> bool {
+        *self == CueChannel::Sound
+    }
+
+    /// Template tag recorded in the configuration and with each cue observation.
+    pub fn template(self, kind: CueKind) -> &'static str {
+        match (self, kind) {
+            (CueChannel::Sound, k) => k.template_version(),
+            (CueChannel::Vibration, CueKind::Start) => "start-vibration-v1",
+            (CueChannel::Vibration, CueKind::Par) => "par-vibration-v1",
+            (CueChannel::Screen, CueKind::Start) => "start-screen-v1",
+            (CueChannel::Screen, CueKind::Par) => "par-screen-v1",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CueChannel::Sound => "sound",
+            CueChannel::Vibration => "vibration",
+            CueChannel::Screen => "screen",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "sound" => Some(CueChannel::Sound),
+            "vibration" => Some(CueChannel::Vibration),
+            "screen" => Some(CueChannel::Screen),
             _ => None,
         }
     }
@@ -242,6 +292,10 @@ pub struct RunConfig {
     /// recording (live mode only). Omitted when false, like `capture_video`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub diagnostic_recording: bool,
+    /// Cue channel for this run's start and par cues. Omitted for sound, so earlier
+    /// configurations keep their hashes.
+    #[serde(default, skip_serializing_if = "CueChannel::is_sound")]
+    pub cue_channel: CueChannel,
 }
 
 pub const TIMESTAMP_MAPPING_METHOD: &str = "frame-anchor-v1";
@@ -291,6 +345,23 @@ impl RunConfig {
         }
         if self.diagnostic_recording && !self.source_mode.needs_microphone() {
             return Err(ConfigError::DiagnosticWithoutMicrophone);
+        }
+        if !self.cue_channel.is_sound() && self.source_mode != SourceMode::ParOnly {
+            return Err(ConfigError::CueChannelNeedsParOnly(self.cue_channel));
+        }
+        if self.cue_channel == CueChannel::Screen {
+            let mut prev = 0;
+            for &p in &self.pars_ms {
+                if p - prev < SCREEN_CUE_MIN_SPACING_MS {
+                    return Err(ConfigError::ScreenCuesTooClose(p));
+                }
+                prev = p;
+            }
+        }
+        if self.start_cue_template != self.cue_channel.template(CueKind::Start)
+            || self.par_cue_template != self.cue_channel.template(CueKind::Par)
+        {
+            return Err(ConfigError::CueTemplateMismatch);
         }
         Ok(())
     }
@@ -363,6 +434,12 @@ pub enum ConfigError {
     DetectorInvalid(&'static str),
     #[error("shooter id missing")]
     ShooterMissing,
+    #[error("{} cues are available in par-only mode only; shot timing needs the sound cue", .0.as_str())]
+    CueChannelNeedsParOnly(CueChannel),
+    #[error("screen cues must be at least {SCREEN_CUE_MIN_SPACING_MS} ms apart (par at {0} ms is too close)")]
+    ScreenCuesTooClose(u32),
+    #[error("cue templates do not match the cue channel")]
+    CueTemplateMismatch,
 }
 
 #[cfg(test)]
@@ -390,6 +467,7 @@ mod tests {
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
             diagnostic_recording: false,
+            cue_channel: CueChannel::Sound,
             app_build: "test".into(),
         }
     }
@@ -404,6 +482,34 @@ mod tests {
         let v = RunConfig { capture_video: true, ..c.clone() };
         assert!(serde_json::to_string(&v).unwrap().contains("\"capture_video\":true"));
         assert_ne!(v.config_hash(), c.config_hash());
+    }
+
+    #[test]
+    fn non_sound_cues_are_par_only_with_their_own_templates_and_sound_keeps_old_hashes() {
+        let sound = par_only_config();
+        assert!(!serde_json::to_string(&sound).unwrap().contains("cue_channel"));
+        for ch in [CueChannel::Vibration, CueChannel::Screen] {
+            let mut c = par_only_config();
+            c.cue_channel = ch;
+            assert_eq!(c.validate(), Err(ConfigError::CueTemplateMismatch), "{ch:?} with sound templates");
+            c.start_cue_template = ch.template(CueKind::Start).into();
+            c.par_cue_template = ch.template(CueKind::Par).into();
+            assert_eq!(c.validate(), Ok(()));
+            assert_ne!(c.config_hash(), sound.config_hash());
+            let back: RunConfig = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+            assert_eq!(back.cue_channel, ch);
+            let mut close = c.clone();
+            close.pars_ms = vec![1000, 1300];
+            match ch {
+                CueChannel::Screen => assert_eq!(close.validate(), Err(ConfigError::ScreenCuesTooClose(1300))),
+                _ => assert_eq!(close.validate(), Ok(()), "only flashing is limited"),
+            }
+            close.pars_ms = vec![1000, 1350];
+            assert_eq!(close.validate(), Ok(()));
+            c.source_mode = SourceMode::PhoneLive;
+            c.detector = Some(DetectorConfig::default());
+            assert_eq!(c.validate(), Err(ConfigError::CueChannelNeedsParOnly(ch)));
+        }
     }
 
     #[test]

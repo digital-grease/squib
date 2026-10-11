@@ -232,8 +232,8 @@ impl SquibEngine {
                 self.stop_capture(g);
                 None
             }
-            Effect::PlayCue { cue_id, kind, .. } => {
-                g.effects.push(NativeEffect::PlayCue { cue_id, cue: kind.into() });
+            Effect::PlayCue { cue_id, kind, channel, .. } => {
+                g.effects.push(NativeEffect::PlayCue { cue_id, cue: kind.into(), channel: channel.into() });
                 None
             }
             Effect::ExpectCue { cue_id, kind, reference_ns, render_known } => {
@@ -516,6 +516,7 @@ impl SquibEngine {
         let Some(run) = g.run.as_ref() else { return vec![] };
         let rate = run.rate;
         let epoch = run.epoch.as_ref().map(|e| e.epoch_id.clone());
+        let channel = g.machine.config.as_ref().map(|c| c.cue_channel).unwrap_or_default();
         g.machine
             .cues
             .iter()
@@ -531,7 +532,7 @@ impl SquibEngine {
                     cue_id: c.cue_id,
                     kind: c.kind,
                     par_index: c.par_index,
-                    template_version: c.kind.template_version().into(),
+                    template_version: channel.template(c.kind).into(),
                     requested_mono_ns: c.requested_ns,
                     issued_mono_ns: c.issued_ns,
                     render_mono_ns: c.render_ns,
@@ -716,7 +717,11 @@ impl SquibEngine {
         if p.cue_issued_ns.is_none() && now_ns - p.started_ns >= CUE_TEST_LEAD_MS * NS_PER_MS && cap.processed_end > 0 {
             p.cue_issued_ns = Some(now_ns);
             p.stage = "playing".into();
-            g.effects.push(NativeEffect::PlayCue { cue_id: START_CUE_ID, cue: CueType::Start });
+            g.effects.push(NativeEffect::PlayCue {
+                cue_id: START_CUE_ID,
+                cue: CueType::Start,
+                channel: crate::ffi::CueChannel::Sound,
+            });
         }
         if let Some(m) = p.cue_result.take() {
             p.stage = "done".into();
@@ -909,8 +914,8 @@ impl SquibEngine {
                 (None, None) => StopPolicy::Manual,
             },
             expected_count: req.expected_count,
-            start_cue_template: CueKind::Start.template_version().into(),
-            par_cue_template: CueKind::Par.template_version().into(),
+            start_cue_template: squib_domain::CueChannel::from(req.cue_channel).template(CueKind::Start).into(),
+            par_cue_template: squib_domain::CueChannel::from(req.cue_channel).template(CueKind::Par).into(),
             detector,
             calibration_profile_id: calibration_id,
             route_signature: if mode == SourceMode::PhoneLive {
@@ -925,6 +930,7 @@ impl SquibEngine {
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: req.video,
             diagnostic_recording: req.diagnostic_root.is_some(),
+            cue_channel: req.cue_channel.into(),
             app_build: req.app_build.clone(),
         };
         // Conditions are pinned before the run intent so the snapshot reference is valid.

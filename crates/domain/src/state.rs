@@ -185,6 +185,12 @@ pub enum StartReferenceMethod {
     ScheduledRender,
     /// Only the time the app asked for playback is known. Degraded.
     RequestedOnly,
+    /// Vibration start (par-only): the time the app asked the vibrator to start. Motor
+    /// response time is not measured.
+    VibrationRequest,
+    /// Screen start (par-only): the frame-clock time of the first frame showing the start
+    /// signal. Display latency is not measured.
+    ScreenFrame,
     /// No start origin; first-shot and total are unavailable.
     Unresolved,
 }
@@ -195,6 +201,8 @@ impl StartReferenceMethod {
             StartReferenceMethod::AcousticCue => "acoustic_cue",
             StartReferenceMethod::ScheduledRender => "scheduled_render",
             StartReferenceMethod::RequestedOnly => "requested_only",
+            StartReferenceMethod::VibrationRequest => "vibration_request",
+            StartReferenceMethod::ScreenFrame => "screen_frame",
             StartReferenceMethod::Unresolved => "unresolved",
         }
     }
@@ -204,6 +212,8 @@ impl StartReferenceMethod {
             "acoustic_cue" => StartReferenceMethod::AcousticCue,
             "scheduled_render" => StartReferenceMethod::ScheduledRender,
             "requested_only" => StartReferenceMethod::RequestedOnly,
+            "vibration_request" => StartReferenceMethod::VibrationRequest,
+            "screen_frame" => StartReferenceMethod::ScreenFrame,
             "unresolved" => StartReferenceMethod::Unresolved,
             _ => return None,
         })

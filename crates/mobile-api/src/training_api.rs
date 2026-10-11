@@ -539,6 +539,7 @@ impl SquibEngine {
             timestamp_mapping_method: TIMESTAMP_MAPPING_METHOD.into(),
             capture_video: false,
             diagnostic_recording: false,
+            cue_channel: squib_domain::CueChannel::Sound,
             app_build,
         };
         config.validate().map_err(inval)?;
