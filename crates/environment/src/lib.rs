@@ -4,8 +4,10 @@
 //! Native adapters perform HTTP and sensor reads; this crate decides what to fetch,
 //! validates what came back, and resolves each field with visible provenance.
 
+pub mod alerts;
 pub mod candidate;
 pub mod derived;
+pub mod heat;
 pub mod local;
 pub mod metar;
 pub mod nws;

@@ -33,6 +33,12 @@ fn serve(url: &str) -> (u16, Vec<u8>) {
     if url.starts_with("https://aviationweather.gov/api/data/metar?") {
         return (204, vec![]);
     }
+    if url.contains("/alerts/active?point=51.5") {
+        return (400, fx("alerts_out_of_bounds.json"));
+    }
+    if url.contains("/alerts/active?point=") {
+        return (200, fx("alerts_boulder_none.json"));
+    }
     if url.contains("/points/51.5") {
         return (404, fx("points_outside_us.json"));
     }
@@ -59,7 +65,10 @@ fn refresh(e: &SquibEngine, now: i64, offline: bool) -> usize {
         let req = queue.remove(0);
         assert_eq!(req.user_agent, "Squib/0.1 (https://github.com/digital-grease/squib)");
         assert!(req.url.starts_with("https://api.weather.gov/") || req.url.starts_with("https://aviationweather.gov/api/data/"));
-        n += 1;
+        // Counts weather requests; the alerts request rides along in Automatic mode.
+        if !req.url.contains("/alerts/") {
+            n += 1;
+        }
         let resp = if offline {
             HttpResponseFfi {
                 id: req.id,
@@ -324,7 +333,9 @@ fn a_transient_server_error_is_retried_after_a_delay_and_reported_as_a_retry() {
     let mut sent = vec![];
     while !step.done {
         let req = queue.remove(0);
-        sent.push((req.url.clone(), req.delay_ms));
+        if !req.url.contains("/alerts/") {
+            sent.push((req.url.clone(), req.delay_ms));
+        }
         let first_points = sent.iter().filter(|(u, _)| u.contains("/points/")).count() == 1 && req.url.contains("/points/");
         let resp = if first_points {
             HttpResponseFfi {
@@ -497,4 +508,73 @@ fn derived_metrics_need_local_pressure_and_name_their_inputs() {
     assert!(d.inputs.iter().any(|i| i.starts_with("Pressure here (actual): Your entry")), "{:?}", d.inputs);
     assert!(d.inputs.iter().any(|i| i.starts_with("Temperature: K")), "station named: {:?}", d.inputs);
     assert!(v.derived_unavailable.is_none());
+}
+
+#[test]
+fn alerts_come_with_weather_in_automatic_mode_and_the_heat_card_only_when_hot() {
+    let e = engine("alerts");
+    e.set_weather_enabled(true).unwrap();
+    boulder(&e);
+    // Drive a refresh where the alerts request gets a real advisory.
+    let mut step = e.conditions_refresh(NOW).unwrap();
+    let alerts_req = step
+        .requests
+        .iter()
+        .find(|r| r.url.contains("/alerts/active?point=40.02,-105.27"))
+        .cloned()
+        .expect("alerts with weather");
+    let mut queue = step.requests.clone();
+    while !step.done {
+        let req = queue.remove(0);
+        let (status, body) = if req.id == alerts_req.id {
+            (200, std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/nws/alerts_helena.json")).unwrap())
+        } else {
+            serve(&req.url)
+        };
+        step = e.conditions_response(
+            HttpResponseFfi {
+                id: req.id,
+                status,
+                body,
+                etag: None,
+                max_age_s: Some(5),
+                retry_after_s: None,
+                error: None,
+                unit_random: 0.5,
+            },
+            NOW + 1_000,
+        );
+        queue.extend(step.requests.clone());
+    }
+    let v = e.conditions_view(NOW + 1_000);
+    assert_eq!(v.alerts.len(), 1);
+    assert_eq!(v.alerts[0].event, "Winter Weather Advisory");
+    assert_eq!(v.alerts_fetched_utc_ms, Some(NOW + 1_000));
+    assert!(v.alerts_note.is_none());
+    // October in Boulder: no heat card.
+    assert!(v.heat.is_none());
+
+    // Hot and humid entries give the heat card with the NWS method named.
+    e.set_override("temperature".into(), 308.15, 35.0, "degC".into(), NOW).unwrap(); // 95 °F
+    e.set_override("relative_humidity".into(), 0.5, 50.0, "%".into(), NOW).unwrap();
+    let h = e.conditions_view(NOW + 1_000).heat.expect("heat card");
+    assert_eq!(h.method, "nws-heat-index-rothfusz");
+    assert_eq!(h.heat_index_f.round(), 105.0, "between the NWS chart's 103 (94 °F, 50 %) and 108 (96 °F, 50 %)");
+    assert_eq!(h.category, "Danger");
+
+    // Airport reports everywhere: no NWS alerts requested.
+    e.set_weather_provider("metar".into()).unwrap();
+    let step = e.conditions_refresh(NOW + 2_000).unwrap();
+    assert!(step.requests.iter().all(|r| !r.url.contains("/alerts/")));
+}
+
+#[test]
+fn alerts_outside_the_us_say_so_without_an_error() {
+    let e = engine("alerts-london");
+    e.set_weather_enabled(true).unwrap();
+    e.set_place(PlaceInput { lat: 51.5007, lon: -0.1246, label: None, source: "manual".into() }).unwrap();
+    refresh(&e, NOW_METAR, false);
+    let v = e.conditions_view(NOW_METAR);
+    assert_eq!(v.alerts_note.as_deref(), Some("Weather alerts are for US places only."));
+    assert!(v.issues.iter().all(|i| !i.contains("alerts")), "{:?}", v.issues);
 }

@@ -1,0 +1,126 @@
+{
+    "@context": [
+        "https://geojson.org/geojson-ld/geojson-context.jsonld",
+        {
+            "@version": "1.1",
+            "wx": "https://api.weather.gov/ontology#",
+            "@vocab": "https://api.weather.gov/ontology#"
+        }
+    ],
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.02af72eff6eb04202cb1e430105d169874b37a5f.007.1",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.02af72eff6eb04202cb1e430105d169874b37a5f.007.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.02af72eff6eb04202cb1e430105d169874b37a5f.007.1",
+                "areaDesc": "Helena Valley; Canyon Ferry Area; Missouri Headwaters; Madison River Valley; Northwest Beaverhead County; Beaverhead and Western Madison below 6000ft; Ruby Mountains and Southern Beaverhead Mountains; Gallatin and Madison County Mountains and Centennial Mountains",
+                "geocode": {
+                    "SAME": [
+                        "030049",
+                        "030007",
+                        "030043",
+                        "030057",
+                        "030031",
+                        "030001"
+                    ],
+                    "UGC": [
+                        "MTZ319",
+                        "MTZ323",
+                        "MTZ324",
+                        "MTZ325",
+                        "MTZ327",
+                        "MTZ328",
+                        "MTZ329",
+                        "MTZ330"
+                    ]
+                },
+                "affectedZones": [
+                    "https://api.weather.gov/zones/forecast/MTZ319",
+                    "https://api.weather.gov/zones/forecast/MTZ323",
+                    "https://api.weather.gov/zones/forecast/MTZ324",
+                    "https://api.weather.gov/zones/forecast/MTZ325",
+                    "https://api.weather.gov/zones/forecast/MTZ327",
+                    "https://api.weather.gov/zones/forecast/MTZ328",
+                    "https://api.weather.gov/zones/forecast/MTZ329",
+                    "https://api.weather.gov/zones/forecast/MTZ330"
+                ],
+                "references": [
+                    {
+                        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.788ba8280995d2bd49591e4662266b21df9055f3.007.1",
+                        "identifier": "urn:oid:2.49.0.1.840.0.788ba8280995d2bd49591e4662266b21df9055f3.007.1",
+                        "sender": "w-nws.webmaster@noaa.gov",
+                        "sent": "2026-10-10T10:56:00-06:00"
+                    },
+                    {
+                        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.e3247f4b382a0c83c88dbd6ac1ed768dc1c2f4fa.006.1",
+                        "identifier": "urn:oid:2.49.0.1.840.0.e3247f4b382a0c83c88dbd6ac1ed768dc1c2f4fa.006.1",
+                        "sender": "w-nws.webmaster@noaa.gov",
+                        "sent": "2026-10-10T16:13:00-06:00"
+                    }
+                ],
+                "sent": "2026-10-10T22:40:00-06:00",
+                "effective": "2026-10-10T22:40:00-06:00",
+                "onset": "2026-10-10T22:40:00-06:00",
+                "expires": "2026-10-11T15:15:00-06:00",
+                "ends": "2026-10-12T06:00:00-06:00",
+                "status": "Actual",
+                "messageType": "Update",
+                "category": "Met",
+                "severity": "Moderate",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Winter Weather Advisory",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "senderName": "NWS Great Falls MT",
+                "headline": "Winter Weather Advisory issued October 10 at 10:40PM MDT until October 12 at 6:00AM MDT by NWS Great Falls MT",
+                "description": "* WHAT...Snow expected. Total snow accumulations of between 2 to 5\ninches across lower elevations, with 5 to 8 inches in the\nmountains. Locally higher amounts possible. Winds gusting as high\nas 45 mph.\n\n* WHERE...Portions of central and southwest Montana.\n\n* WHEN...Until 6 AM MDT Monday.\n\n* IMPACTS...Travel could be difficult. Gusty winds combined with the\nwet and heavy nature of the snow could bring down tree branches.\nIsolated power outages are possible.\n\n* ADDITIONAL DETAILS...Snowfall amounts will vary drastically from\ngrassy surfaces to roadways, most notably at lower elevations, with\naccumulations on non-grassy surfaces being confined mainly to\nbetween the evening through late morning hours.",
+                "instruction": "Slow down and use caution while traveling. The latest road conditions\nfor the state you are calling from can be obtained by calling 5 1 1.",
+                "response": "Execute",
+                "note": null,
+                "parameters": {
+                    "AWIPSidentifier": [
+                        "WSWTFX"
+                    ],
+                    "WMOidentifier": [
+                        "WWUS45 KTFX 110440"
+                    ],
+                    "NWSheadline": [
+                        "WINTER WEATHER ADVISORY REMAINS IN EFFECT UNTIL 6 AM MDT MONDAY"
+                    ],
+                    "BLOCKCHANNEL": [
+                        "EAS",
+                        "NWEM",
+                        "CMAS"
+                    ],
+                    "VTEC": [
+                        "/O.CON.KTFX.WW.Y.0027.000000T0000Z-261012T1200Z/"
+                    ],
+                    "eventEndingTime": [
+                        "2026-10-12T06:00:00-06:00"
+                    ],
+                    "expiredReferences": [
+                        "w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.5c27555301c61c960e80ee52001e9dfdf3528c34.006.1,2026-10-10T00:32:00-06:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.63d055c6b8522eab4f914c4a776454fb26ce1d04.010.1,2026-10-09T11:29:00-06:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.63d055c6b8522eab4f914c4a776454fb26ce1d04.008.2,2026-10-09T11:29:00-06:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.63d055c6b8522eab4f914c4a776454fb26ce1d04.007.2,2026-10-09T11:29:00-06:00"
+                    ]
+                },
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": [
+                        "NWS"
+                    ],
+                    "NationalWeatherService": [
+                        "WWY"
+                    ]
+                }
+            }
+        }
+    ],
+    "title": "Current watches, warnings, and advisories for 46.59 N, 112.04 W",
+    "updated": "2026-10-11T04:45:25+00:00"
+}

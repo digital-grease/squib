@@ -4,6 +4,7 @@
 
 use std::sync::MutexGuard;
 
+use squib_environment::alerts::{AlertsLookup, AlertsResult, AlertsStep};
 use squib_environment::metar::{self, MetarRefresh};
 use squib_environment::nws::{self, CachedDoc, DocCache, HttpResponse, NwsRefresh, Step, TransportError};
 use squib_environment::privacy::LocationRetention;
@@ -52,6 +53,9 @@ pub struct CondState {
     pub terrain_issues: Vec<nws::ProviderIssue>,
     /// The place to about 10 m for terrain; set only while terrain lookup is on.
     pub terrain_point: Option<(f64, f64)>,
+    /// NWS alerts lookup in progress and its last result (Automatic weather mode only).
+    pub alerts: Option<AlertsLookup>,
+    pub alerts_result: Option<AlertsResult>,
     pub last_refresh_utc_ms: Option<i64>,
     pub used_cache: bool,
     /// Requests retried during the last refresh.
@@ -196,6 +200,13 @@ pub struct ConditionsView {
     pub derived: Option<DerivedView>,
     /// Why there is no derived value (missing inputs or out of range).
     pub derived_unavailable: Option<String>,
+    /// Active NWS alerts for the place, most severe first.
+    pub alerts: Vec<AlertView>,
+    /// When the shown alerts were fetched (older when shown from a saved copy).
+    pub alerts_fetched_utc_ms: Option<i64>,
+    /// "No active alerts", "Alerts are for US places only", or `None` before any lookup.
+    pub alerts_note: Option<String>,
+    pub heat: Option<HeatView>,
 }
 
 /// Air density and density altitude derived from the resolved inputs (plan phase 3.4).
@@ -396,6 +407,33 @@ pub fn derived_of(s: &EnvironmentSnapshot) -> (Option<DerivedView>, Option<Strin
     }
 }
 
+fn alerts_view(r: Option<&AlertsResult>) -> (Vec<AlertView>, Option<i64>, Option<String>) {
+    let Some(r) = r else { return (vec![], None, None) };
+    match &r.alerts {
+        None if r.issues.is_empty() => (vec![], None, Some("Weather alerts are for US places only.".into())),
+        None => (vec![], None, None),
+        Some(a) => (
+            a.iter()
+                .map(|x| AlertView {
+                    event: x.event.clone(),
+                    severity: x.severity.clone(),
+                    urgency: x.urgency.clone(),
+                    certainty: x.certainty.clone(),
+                    headline: x.headline.clone(),
+                    onset_utc_ms: x.onset_utc_ms,
+                    until_utc_ms: x.until_utc_ms,
+                    sender: x.sender.clone(),
+                    area: x.area.clone(),
+                    description: x.description.clone(),
+                    instruction: x.instruction.clone(),
+                })
+                .collect(),
+            r.fetched_utc_ms,
+            a.is_empty().then(|| "No active weather alerts for this place.".into()),
+        ),
+    }
+}
+
 pub fn conditions_view_of(s: &EnvironmentSnapshot, now_utc_ms: i64) -> Vec<FieldView> {
     s.fields.iter().map(|f| field_view(f, now_utc_ms)).collect()
 }
@@ -470,8 +508,83 @@ fn terrain_step(step: Step, st: &mut CondState) -> Vec<HttpRequestFfi> {
     }
 }
 
-/// Weather request ids start at 1; terrain ids are kept well apart.
+/// Weather request ids start at 1; terrain and alerts ids are kept well apart.
 const TERRAIN_FIRST_ID: u32 = 1_000_000;
+const ALERTS_FIRST_ID: u32 = 2_000_000;
+
+fn alerts_step(step: AlertsStep, st: &mut CondState) -> Vec<HttpRequestFfi> {
+    match step {
+        AlertsStep::Fetch(reqs) => to_ffi(reqs, nws::PROVIDER)
+            .into_iter()
+            .map(|r| HttpRequestFfi { max_body_bytes: squib_environment::alerts::MAX_BODY_BYTES as u32, ..r })
+            .collect(),
+        AlertsStep::Done(res) => {
+            st.alerts = None;
+            st.alerts_result = Some(res);
+            vec![]
+        }
+    }
+}
+
+/// One active NWS alert for the place.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct AlertView {
+    pub event: String,
+    /// CAP severity: Extreme, Severe, Moderate, Minor, Unknown.
+    pub severity: String,
+    pub urgency: String,
+    pub certainty: String,
+    pub headline: Option<String>,
+    pub onset_utc_ms: Option<i64>,
+    pub until_utc_ms: Option<i64>,
+    pub sender: String,
+    pub area: String,
+    pub description: String,
+    pub instruction: Option<String>,
+}
+
+/// Heat index card (plan phase 3.5), shown when the heat index is 80 °F or more.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct HeatView {
+    pub method: String,
+    pub heat_index_c: f64,
+    pub heat_index_f: f64,
+    /// Caution, Extreme caution, Danger, Extreme danger.
+    pub category: String,
+    pub inputs: Vec<String>,
+    pub uses_older_data: bool,
+}
+
+pub fn heat_of(s: &EnvironmentSnapshot) -> Option<HeatView> {
+    use squib_environment::heat;
+    let pick = |f: Field| s.field(f).and_then(|r| r.chosen.as_ref().and_then(|c| c.value.si()).map(|v| (v, r)));
+    let (t, tr) = pick(Field::Temperature)?;
+    let (rh, hr) = pick(Field::RelativeHumidity)?;
+    let t_f = (t - 273.15) * 9.0 / 5.0 + 32.0;
+    let hi = heat::heat_index_f(t_f, rh * 100.0);
+    let category = heat::HeatCategory::of(hi)?;
+    let older = |r: &ResolvedField| {
+        matches!(
+            r.freshness,
+            Some(
+                squib_environment::Freshness::Stale
+                    | squib_environment::Freshness::Expired
+                    | squib_environment::Freshness::UnknownAge
+            )
+        )
+    };
+    Some(HeatView {
+        method: heat::METHOD.into(),
+        heat_index_c: (hi - 32.0) * 5.0 / 9.0,
+        heat_index_f: hi,
+        category: category.label().into(),
+        inputs: [(Field::Temperature, tr), (Field::RelativeHumidity, hr)]
+            .iter()
+            .map(|(f, r)| format!("{}: {}", field_label(*f), r.chosen.as_ref().map(source_label).unwrap_or_default()))
+            .collect(),
+        uses_older_data: older(tr) || older(hr),
+    })
+}
 
 impl SquibEngine {
     pub(crate) fn weather_provider(&self) -> String {
@@ -561,6 +674,8 @@ impl SquibEngine {
         let st = self.cond();
         let snap = self.resolve_now(&st, now_utc_ms);
         let (derived, derived_unavailable) = derived_of(&snap);
+        let (alerts, alerts_fetched_utc_ms, alerts_note) = alerts_view(st.alerts_result.as_ref());
+        let heat = heat_of(&snap);
         ConditionsView {
             weather_enabled: self.settings_bool(SETTING_WEATHER_ENABLED),
             terrain_enabled: self.settings_bool(SETTING_TERRAIN_ENABLED),
@@ -574,17 +689,27 @@ impl SquibEngine {
             }),
             fields: conditions_view_of(&snap, now_utc_ms),
             elevation_notes: snap.elevation_comparisons.iter().map(elevation_note).collect(),
-            issues: st.issues.iter().chain(st.terrain_issues.iter()).map(issue_text).collect(),
+            issues: st
+                .issues
+                .iter()
+                .chain(st.terrain_issues.iter())
+                .chain(st.alerts_result.iter().flat_map(|r| r.issues.iter()))
+                .map(issue_text)
+                .collect(),
             attribution: snap.attribution.clone(),
             last_refresh_utc_ms: st.last_refresh_utc_ms,
             used_cache: st.used_cache,
             retries: st.retries,
-            refreshing: st.refresh.is_some() || st.terrain.is_some(),
+            refreshing: st.refresh.is_some() || st.terrain.is_some() || st.alerts.is_some(),
             allow_older: st.allow_older,
             redacted: false,
             weather_provider: self.weather_provider(),
             derived,
             derived_unavailable,
+            alerts,
+            alerts_fetched_utc_ms,
+            alerts_note,
+            heat,
         }
     }
 
@@ -599,6 +724,8 @@ impl SquibEngine {
         st.refresh = None;
         st.remote.clear();
         st.issues.clear();
+        st.alerts = None;
+        st.alerts_result = None;
         st.last_refresh_utc_ms = None;
         Ok(())
     }
@@ -608,7 +735,10 @@ impl SquibEngine {
         let v = if enabled { "true" } else { "false" };
         self.store_actor().exec(move |repo| repo.set_setting(SETTING_WEATHER_ENABLED, v))?;
         if !enabled {
-            self.cond().refresh = None;
+            let mut st = self.cond();
+            st.refresh = None;
+            st.alerts = None;
+            st.alerts_result = None;
         }
         Ok(())
     }
@@ -659,9 +789,10 @@ impl SquibEngine {
         let moved = st.place.as_ref().is_none_or(|p| nws::distance_m(p.lat, p.lon, lat, lon) > 1000.0);
         st.place = Some(new_place);
         if moved {
-            // Remote values belong to the old place.
+            // Remote values and alerts belong to the old place.
             st.remote.clear();
             st.issues.clear();
+            st.alerts_result = None;
             st.last_refresh_utc_ms = None;
         }
         Ok(())
@@ -710,6 +841,13 @@ impl SquibEngine {
             st.refresh = Some(r);
             requests.extend(to_step(step, provider, &mut st, now_utc_ms).requests);
         }
+        if weather
+            && !metar_only
+            && let Some((a, step)) = AlertsLookup::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, ALERTS_FIRST_ID)
+        {
+            st.alerts = Some(a);
+            requests.extend(alerts_step(step, &mut st));
+        }
         if terrain_on && let Some((lat, lon)) = st.terrain_point {
             let cache = EngineCache { read: &read, store: self.store_actor(), provider: terrain::PROVIDER };
             if let Some((t, step)) = TerrainLookup::start(lat, lon, now_utc_ms, TERRAIN_FIRST_ID, &cache) {
@@ -720,7 +858,7 @@ impl SquibEngine {
         if !weather {
             st.last_refresh_utc_ms = Some(now_utc_ms);
         }
-        let done = st.refresh.is_none() && st.terrain.is_none();
+        let done = st.refresh.is_none() && st.terrain.is_none() && st.alerts.is_none();
         Ok(ConditionsStep { requests, done })
     }
 
@@ -745,7 +883,15 @@ impl SquibEngine {
         };
         let read = self.read_repo();
         let mut requests = vec![];
-        if st.terrain.as_ref().is_some_and(|t| t.owns(resp.id)) {
+        if st.alerts.as_ref().is_some_and(|a| a.owns(resp.id)) {
+            let mut a = st.alerts.take().expect("checked");
+            let mut cache = EngineCache { read: &read, store: self.store_actor(), provider: nws::PROVIDER };
+            let step = a.on_response(resp, now_utc_ms, &mut cache);
+            if matches!(step, AlertsStep::Fetch(_)) {
+                st.alerts = Some(a);
+            }
+            requests = alerts_step(step, &mut st);
+        } else if st.terrain.as_ref().is_some_and(|t| t.owns(resp.id)) {
             let mut t = st.terrain.take().expect("checked");
             let mut cache = EngineCache { read: &read, store: self.store_actor(), provider: terrain::PROVIDER };
             let step = t.on_response(resp, now_utc_ms, &mut cache);
@@ -781,7 +927,7 @@ impl SquibEngine {
             }
         }
         drop(read);
-        let done = st.refresh.is_none() && st.terrain.is_none();
+        let done = st.refresh.is_none() && st.terrain.is_none() && st.alerts.is_none();
         ConditionsStep { requests, done }
     }
 
@@ -898,6 +1044,11 @@ impl SquibEngine {
                 weather_provider: String::new(),
                 derived,
                 derived_unavailable,
+                // Alerts are not pinned to runs; the heat card comes from the pinned values.
+                alerts: vec![],
+                alerts_fetched_utc_ms: None,
+                alerts_note: None,
+                heat: heat_of(&s),
             }
         }))
     }
