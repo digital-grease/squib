@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -31,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -74,7 +74,7 @@ fun ReviewScreen(
     }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("review_screen")) {
-        TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹ Back") }
+        BackButton("Back", "Back", onBack)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         val r = review ?: return@Column
         Text("Review", style = MaterialTheme.typography.headlineMedium)
@@ -219,7 +219,7 @@ private fun EventRow(e: ReviewEvent, pending: MutableList<ReviewAction>) {
                 }
                 val mid = e.reference.manualId
                 if (mid != null) {
-                    OutlinedButton(onClick = { pending += ReviewAction.RemoveManual(mid) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Remove") }
+                    OutlinedButton(onClick = { pending += ReviewAction.RemoveManual(mid) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Remove the shot you added")) { Text("Remove") }
                 }
             }
         }
@@ -242,7 +242,8 @@ private fun Timeline(r: ReviewView) {
     Text("Energy (coarse, not a waveform)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
     Canvas(
         Modifier.fillMaxWidth().height(120.dp).semantics {
-            contentDescription = "Timeline with ${events.count { it.state == "accepted" }} accepted, " +
+            contentDescription = "Timeline with ${events.count { it.state == "accepted" }} accepted " +
+                "(${events.count { it.state == "accepted" && it.origin == "manual" }} added by you), " +
                 "${events.count { it.state == "uncertain" }} uncertain, ${events.count { it.state == "rejected" }} rejected events"
         },
     ) {
@@ -267,13 +268,18 @@ private fun Timeline(r: ReviewView) {
         events.forEach { e ->
             val cx = x(e.timelineNs)
             when (e.state) {
-                "accepted" -> drawCircle(if (e.origin == "manual") Color(0xFF80DEEA) else accent, 10f, Offset(cx, h * 0.25f))
+                // Shots you added are rings, not a lighter colour, so shape tells them apart.
+                "accepted" -> if (e.origin == "manual") {
+                    drawCircle(accent, 9f, Offset(cx, h * 0.25f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+                } else {
+                    drawCircle(accent, 10f, Offset(cx, h * 0.25f))
+                }
                 "uncertain" -> drawRect(warn, Offset(cx - 8f, h * 0.25f - 8f), androidx.compose.ui.geometry.Size(16f, 16f))
                 else -> drawLine(fg.copy(alpha = 0.6f), Offset(cx - 8f, h * 0.25f - 8f), Offset(cx + 8f, h * 0.25f + 8f), strokeWidth = 3f)
             }
         }
     }
-    Text("● accepted   ■ uncertain   ╲ rejected   ┆ cue   ▌ quality", style = MaterialTheme.typography.bodySmall)
+    Text("● accepted   ○ added by you   ■ uncertain   ╲ rejected   ┆ cue   ▌ quality", style = MaterialTheme.typography.bodySmall)
 }
 
 
@@ -297,10 +303,10 @@ private fun ScoreCard(d: net.digitalgrease.squib.data.DataController, runId: Str
     Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Score · ${s.profileTitle} (generic practice)", fontWeight = FontWeight.Bold)
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 d.profiles.filter { !it.manual }.forEach { p ->
                     androidx.compose.material3.FilterChip(selected = p.id == s.profileId, onClick = { profileId = p.id },
-                        label = { Text(p.title) }, modifier = Modifier.padding(end = 6.dp))
+                        label = { Text(p.title) }, modifier = Modifier.oneOf().padding(end = 6.dp))
                 }
             }
             Text(
@@ -326,10 +332,7 @@ private fun ScoreCard(d: net.digitalgrease.squib.data.DataController, runId: Str
                 }
             }
             if (profile?.inputs?.isNotEmpty() == true) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    androidx.compose.material3.Checkbox(checked = complete, onCheckedChange = { complete = it }, modifier = Modifier.testTag("score_complete"))
-                    Text("All targets scored")
-                }
+                LabeledToggle("All targets scored", complete, { complete = it }, checkbox = true, tag = "score_complete")
                 OutlinedButton(onClick = {
                     scope.launch { d.saveScore(runId, s.profileId, counts.toMap(), complete).onSuccess { score = it } }
                 }, modifier = Modifier.heightIn(min = 48.dp).testTag("save_score")) { Text("Save score") }

@@ -48,7 +48,7 @@ fun SessionScreen(d: DataController, sessionId: String, runActive: Boolean, onBa
     }
     if (s == null) {
         Column(Modifier.padding(16.dp)) {
-            TextButton(onClick = onBack) { Text("‹ History") }
+            BackButton("History", "Back to History", onBack)
             Text("This visit no longer exists.")
         }
         return
@@ -59,7 +59,7 @@ fun SessionScreen(d: DataController, sessionId: String, runActive: Boolean, onBa
     var currency by remember(s.id, s.currency) { mutableStateOf(s.currency ?: "") }
     LazyColumn(Modifier.padding(horizontal = 16.dp).testTag("session_screen")) {
         item {
-            TextButton(onClick = onBack) { Text("‹ History") }
+            BackButton("History", "Back to History", onBack)
             Text("Visit", style = MaterialTheme.typography.headlineMedium)
             Text(fmtDate(s.startedUtcMs) + (s.endedUtcMs?.let { " to " + fmtDate(it) } ?: "") + " · " + s.shooterName)
             FlowRow {

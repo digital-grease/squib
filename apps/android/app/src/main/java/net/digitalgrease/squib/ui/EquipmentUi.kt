@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,8 +52,8 @@ fun EquipmentSection(d: DataController) {
                 if (e.notes.isNotBlank()) Text(e.notes, style = MaterialTheme.typography.bodySmall)
                 Text("Version ${e.version}", style = MaterialTheme.typography.bodySmall)
                 FlowRow {
-                    TextButton(onClick = { editing = e }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Edit") }
-                    TextButton(onClick = { d.archiveEquipment(e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("equipment_archive_${e.name}")) { Text("Archive") }
+                    TextButton(onClick = { editing = e }, modifier = Modifier.heightIn(min = 48.dp).spoken("Edit ${e.name}")) { Text("Edit") }
+                    TextButton(onClick = { d.archiveEquipment(e.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("equipment_archive_${e.name}").spoken("Archive ${e.name}")) { Text("Archive") }
                 }
             }
         }
@@ -74,10 +75,10 @@ private fun EquipmentEditor(d: DataController, existing: EquipmentView?, onDone:
             Text(if (existing == null) "New equipment" else "Edit (creates version ${existing.version + 1u})", fontWeight = FontWeight.Bold)
             OutlinedTextField(name, { name = it.take(80) }, label = { Text("Name, e.g. Carry pistol") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("equipment_name"))
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 d.equipmentCategories.forEach { c ->
                     FilterChip(selected = category == c, onClick = { category = c }, label = { Text(categoryLabel(c)) },
-                        modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp).testTag("equipment_cat_$c"))
+                        modifier = Modifier.oneOf().padding(end = 6.dp).heightIn(min = 48.dp).testTag("equipment_cat_$c"))
                 }
             }
             OutlinedTextField(notes, { notes = it.take(1000) }, label = { Text("Notes (optic, load, setup)") }, modifier = Modifier.fillMaxWidth())
@@ -107,12 +108,12 @@ fun EquipmentBar(d: DataController, locked: Boolean) {
         }
     }
     if (open && !locked) {
-        FlowRow {
+        FlowRow(Modifier.selectableGroup()) {
             FilterChip(selected = active == null, onClick = { d.setActiveEquipment(null) }, label = { Text("None") },
-                modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp))
+                modifier = Modifier.oneOf().padding(end = 6.dp).heightIn(min = 48.dp))
             items.forEach { e ->
                 FilterChip(selected = e.active, onClick = { d.setActiveEquipment(e.id) }, label = { Text(e.name) },
-                    modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp).testTag("pick_equipment_${e.name}"))
+                    modifier = Modifier.oneOf().padding(end = 6.dp).heightIn(min = 48.dp).testTag("pick_equipment_${e.name}"))
             }
         }
     }

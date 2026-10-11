@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.testTag
 import net.digitalgrease.squib.conditions.ConditionsController
 import net.digitalgrease.squib.conditions.ConditionsScreen
@@ -181,6 +183,18 @@ class MainActivity : ComponentActivity() {
                         text = { Text(dataMsg!!) },
                     )
                 }
+                // System Back mirrors each screen's own Back link; from another tab it returns
+                // to the Timer, and only on the Timer does it leave the app.
+                BackHandler(enabled = reviewRun != null || tab != "timer") {
+                    when {
+                        reviewRun != null -> { reviewRun = null; controller.refreshHistory(); data.reload() }
+                        tab == "data" -> tab = "history"
+                        tab == "plan" -> { openPlan = null; tab = "practice"; data.reload() }
+                        tab == "checklist" -> tab = "practice"
+                        tab == "history" && openSession != null -> { openSession = null; data.reload() }
+                        else -> tab = "timer"
+                    }
+                }
                 val locDenied by locationDenied
                 val denied by deniedMessage
                 Scaffold(
@@ -188,20 +202,20 @@ class MainActivity : ComponentActivity() {
                         NavigationBar {
                             NavigationBarItem(
                                 selected = tab == "timer", onClick = { tab = "timer"; reviewRun = null },
-                                icon = { Text("⏱") }, label = { Text("Timer") }, modifier = Modifier.testTag("tab_timer"),
+                                icon = { Text("⏱", modifier = Modifier.clearAndSetSemantics {}) }, label = { Text("Timer") }, modifier = Modifier.testTag("tab_timer"),
                             )
                             NavigationBarItem(
                                 selected = tab in setOf("practice", "plan", "checklist"),
                                 onClick = { tab = if (openPlan != null) "plan" else "practice"; reviewRun = null },
-                                icon = { Text("◎") }, label = { Text("Practice") }, modifier = Modifier.testTag("tab_practice"),
+                                icon = { Text("◎", modifier = Modifier.clearAndSetSemantics {}) }, label = { Text("Practice") }, modifier = Modifier.testTag("tab_practice"),
                             )
                             NavigationBarItem(
                                 selected = tab == "conditions", onClick = { tab = "conditions"; reviewRun = null },
-                                icon = { Text("☁") }, label = { Text("Conditions") }, modifier = Modifier.testTag("tab_conditions"),
+                                icon = { Text("☁", modifier = Modifier.clearAndSetSemantics {}) }, label = { Text("Conditions") }, modifier = Modifier.testTag("tab_conditions"),
                             )
                             NavigationBarItem(
                                 selected = tab == "history", onClick = { tab = "history"; reviewRun = null },
-                                icon = { Text("☰") }, label = { Text("History") }, modifier = Modifier.testTag("tab_history"),
+                                icon = { Text("☰", modifier = Modifier.clearAndSetSemantics {}) }, label = { Text("History") }, modifier = Modifier.testTag("tab_history"),
                             )
                         }
                     },

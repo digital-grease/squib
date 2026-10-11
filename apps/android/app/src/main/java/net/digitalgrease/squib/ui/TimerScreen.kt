@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -100,18 +101,18 @@ fun TimerScreen(
 
             if (editable) {
                 Text("Mode", style = MaterialTheme.typography.titleMedium)
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     FilterChip(
                         selected = s.mode == Mode.PAR_ONLY,
                         onClick = { c.updateSettings { it.copy(mode = Mode.PAR_ONLY) } },
                         label = { Text("Par-only (no microphone)") },
-                        modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("mode_par"),
+                        modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp).testTag("mode_par"),
                     )
                     FilterChip(
                         selected = s.mode == Mode.PHONE_LIVE,
                         onClick = { c.updateSettings { it.copy(mode = Mode.PHONE_LIVE) } },
                         label = { Text("Live shots (experimental)") },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("mode_live"),
+                        modifier = Modifier.oneOf().heightIn(min = 48.dp).testTag("mode_live"),
                     )
                 }
                 CueChannelChooser(s.mode, s.cueChannel, c.canVibrate) { ch -> c.updateSettings { it.copy(cueChannel = ch) } }
@@ -150,13 +151,13 @@ fun TimerScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("Start delay (max 30 s)", style = MaterialTheme.typography.titleMedium)
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     for (k in DelayKind.entries) {
                         FilterChip(
                             selected = s.delayKind == k,
                             onClick = { c.updateSettings { it.copy(delayKind = k) } },
                             label = { Text(k.name.lowercase().replaceFirstChar { ch -> ch.uppercase() }) },
-                            modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("delay_${k.name.lowercase()}"),
+                            modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp).testTag("delay_${k.name.lowercase()}"),
                         )
                     }
                 }
@@ -177,22 +178,13 @@ fun TimerScreen(
                     singleLine = true,
                 )
                 if (!s.parsMs().isNullOrEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Switch(checked = s.autoStop, onCheckedChange = { b -> c.updateSettings { it.copy(autoStop = b, autoStopCount = if (b) null else it.autoStopCount) } }, modifier = Modifier.testTag("auto_stop_switch"))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Auto stop 1 s after last par")
-                    }
+                    LabeledToggle("Auto stop 1 s after last par", s.autoStop, { b ->
+                        c.updateSettings { it.copy(autoStop = b, autoStopCount = if (b) null else it.autoStopCount) }
+                    }, tag = "auto_stop_switch")
                 }
                 if (s.drillId != null && s.drillRepeats > 1) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Switch(
-                            checked = s.autoRepeat,
-                            onCheckedChange = { b -> c.updateSettings { it.copy(autoRepeat = b) } },
-                            modifier = Modifier.testTag("auto_repeat_switch"),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Arm the next string automatically")
-                    }
+                    LabeledToggle("Arm the next string automatically", s.autoRepeat, { b -> c.updateSettings { it.copy(autoRepeat = b) } },
+                        tag = "auto_repeat_switch")
                     if (s.autoRepeat) {
                         Text("After each complete string, a countdown of the rest (at least $AUTO_REPEAT_MIN_S s) is shown with a Cancel button, " +
                             "then the next string arms with a new start delay. It stops after the last string, after a string that did not " +
@@ -201,15 +193,9 @@ fun TimerScreen(
                     }
                 }
                 if (s.mode == Mode.PHONE_LIVE) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Switch(
-                            checked = s.autoStopCount != null,
-                            onCheckedChange = { b -> c.updateSettings { it.copy(autoStopCount = if (b) (it.autoStopCount ?: 3) else null, autoStop = if (b) false else it.autoStop) } },
-                            modifier = Modifier.testTag("auto_stop_count_switch"),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Stop automatically after a number of shots")
-                    }
+                    LabeledToggle("Stop automatically after a number of shots", s.autoStopCount != null, { b ->
+                        c.updateSettings { it.copy(autoStopCount = if (b) (it.autoStopCount ?: 3) else null, autoStop = if (b) false else it.autoStop) }
+                    }, tag = "auto_stop_count_switch")
                     s.autoStopCount?.let { n ->
                         OutlinedTextField(
                             value = n.toString(),
@@ -295,14 +281,14 @@ private fun CueChannelChooser(mode: Mode, channel: CueChannel, canVibrate: Boole
         return
     }
     Text("Start and par cues", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-    FlowRow {
+    FlowRow(Modifier.selectableGroup()) {
         listOf(CueChannel.SOUND to "Sound", CueChannel.VIBRATION to "Vibration", CueChannel.SCREEN to "Screen").forEach { (ch, label) ->
             FilterChip(
                 selected = channel == ch,
                 onClick = { onChange(ch) },
                 enabled = ch != CueChannel.VIBRATION || canVibrate,
                 label = { Text(label) },
-                modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("cue_${ch.name.lowercase()}"),
+                modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp).testTag("cue_${ch.name.lowercase()}"),
             )
         }
     }

@@ -14,7 +14,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,7 +35,7 @@ fun SetupScreen(c: SquibController, onRequestMic: (then: () -> Unit) -> Unit, on
     var label by remember { mutableStateOf("") }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹ Back") }
+        BackButton("Back", "Back to Timer", onBack)
         Text("Sensitivity setup", style = MaterialTheme.typography.headlineMedium)
         Text(
             "Place the phone where it will sit during practice. Squib measures ambient sound for 3 seconds, then " +

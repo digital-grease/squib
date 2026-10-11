@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.conditions
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -20,7 +21,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import net.digitalgrease.squib.core.ConditionsView
 import net.digitalgrease.squib.core.FieldView
+import net.digitalgrease.squib.ui.LabeledToggle
+import net.digitalgrease.squib.ui.oneOf
 import net.digitalgrease.squib.ui.Badge
 import net.digitalgrease.squib.ui.fmtDate
 
@@ -94,10 +96,7 @@ private fun ValuesSection(view: ConditionsView, c: ConditionsController, busy: S
     }
     busy?.let { Text(it, fontWeight = FontWeight.Bold) }
     StatusLine(view)
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-        Text("US units (°F, mph, inHg)", modifier = Modifier.weight(1f))
-        Switch(checked = us, onCheckedChange = c::setUsUnits)
-    }
+    LabeledToggle("US units (°F, mph, inHg)", us, c::setUsUnits, controlAtEnd = true)
     HorizontalDivider()
     FieldList(view, us, c)
     if (view.elevationNotes.isNotEmpty()) {
@@ -105,10 +104,7 @@ private fun ValuesSection(view: ConditionsView, c: ConditionsController, busy: S
         view.elevationNotes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
     }
     if (view.fields.any { it.reasons.contains("Station data is too old") } || view.allowOlder) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text("Use older station data (shown with its age)", modifier = Modifier.weight(1f))
-            Switch(checked = view.allowOlder, onCheckedChange = c::setAllowOlder)
-        }
+        LabeledToggle("Use older station data (shown with its age)", view.allowOlder, c::setAllowOlder, controlAtEnd = true)
     }
 }
 
@@ -116,24 +112,21 @@ private fun ValuesSection(view: ConditionsView, c: ConditionsController, busy: S
 private fun LookupCard(view: ConditionsView, c: ConditionsController) {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Weather lookup", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Switch(checked = view.weatherEnabled, onCheckedChange = c::setWeatherEnabled, modifier = Modifier.testTag("weather_switch"))
-            }
+            LabeledToggle("Weather lookup", view.weatherEnabled, c::setWeatherEnabled, controlAtEnd = true, bold = true, tag = "weather_switch")
             Text(
                 "Sends your place, rounded to about 1 km, to the US National Weather Service, or for places it does not cover, to the " +
                     "NOAA Aviation Weather Center for nearby airport reports (METAR). Off by default; manual values work without it.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text("Weather source", modifier = Modifier.padding(top = 8.dp))
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 androidx.compose.material3.FilterChip(
                     selected = view.weatherProvider != "metar", onClick = { c.setWeatherProvider("auto") },
-                    label = { Text("Automatic") }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("provider_auto"),
+                    label = { Text("Automatic") }, modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp).testTag("provider_auto"),
                 )
                 androidx.compose.material3.FilterChip(
                     selected = view.weatherProvider == "metar", onClick = { c.setWeatherProvider("metar") },
-                    label = { Text("Airport reports everywhere") }, modifier = Modifier.heightIn(min = 48.dp).testTag("provider_metar"),
+                    label = { Text("Airport reports everywhere") }, modifier = Modifier.oneOf().heightIn(min = 48.dp).testTag("provider_metar"),
                 )
             }
             Text(
@@ -304,10 +297,7 @@ private fun OverrideEditor(f: FieldView, us: Boolean, c: ConditionsController) {
 private fun PrivacyCard(view: ConditionsView, c: ConditionsController) {
     Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Save precise location with runs", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Switch(checked = view.preciseRetention, onCheckedChange = c::setPreciseRetention)
-            }
+            LabeledToggle("Save precise location with runs", view.preciseRetention, c::setPreciseRetention, controlAtEnd = true, bold = true)
             Text(
                 "Off: runs keep weather values, sources, and ages, but not coordinates, station names, or elevation. On: full detail is kept on this phone.",
                 style = MaterialTheme.typography.bodySmall,

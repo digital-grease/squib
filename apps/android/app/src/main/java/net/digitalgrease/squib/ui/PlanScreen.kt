@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import android.media.AudioManager
+import androidx.compose.foundation.selection.selectableGroup
 import android.media.ToneGenerator
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
@@ -18,12 +19,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,9 +75,9 @@ fun PlansSection(d: DataController, onOpenPlan: (String) -> Unit, onTemplate: ()
                 OutlinedTextField(title, { title = it.take(200) }, label = { Text("Title, e.g. Club match") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("plan_title"))
                 OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     listOf("practice" to "Practice", "match" to "Match").forEach { (k, l) ->
-                        FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(l) }, modifier = Modifier.padding(end = 8.dp))
+                        FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(l) }, modifier = Modifier.oneOf().padding(end = 8.dp))
                     }
                 }
                 Button(onClick = {
@@ -95,7 +94,7 @@ fun PlansSection(d: DataController, onOpenPlan: (String) -> Unit, onTemplate: ()
                     Text("${p.dateLocal} · ${if (p.kind == "match") "Match" else "Practice"} · ${p.doneItems} of ${p.items} drills done",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                Button(onClick = { onOpenPlan(p.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("open_plan_${p.title}")) { Text("Open") }
+                Button(onClick = { onOpenPlan(p.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("open_plan_${p.title}").spoken("Open ${p.title}, ${p.dateLocal}")) { Text("Open") }
             }
         }
     }
@@ -136,7 +135,7 @@ fun PlanScreen(
     }
     val p = plan
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("plan_screen")) {
-        TextButton(onClick = onBack) { Text("‹ Practice") }
+        BackButton("Practice", "Back to Practice", onBack)
         if (p == null) {
             Text("Loading…")
             return@Column
@@ -215,12 +214,12 @@ private fun PlanItemCard(d: DataController, i: PlanItemView, first: Boolean, las
                         Text(if (i.done) "Run again" else "Start")
                     }
                 }
-                TextButton(onClick = { d.setItemSkipped(i.id, !i.skipped, reload) }, modifier = Modifier.heightIn(min = 48.dp).testTag("skip_${i.title}")) {
+                TextButton(onClick = { d.setItemSkipped(i.id, !i.skipped, reload) }, modifier = Modifier.heightIn(min = 48.dp).testTag("skip_${i.title}").spoken("${if (i.skipped) "Unskip" else "Skip"} ${i.title}")) {
                     Text(if (i.skipped) "Unskip" else "Skip")
                 }
-                if (!first) TextButton(onClick = { d.movePlanItem(i.id, true, reload) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Move up") }
-                if (!last) TextButton(onClick = { d.movePlanItem(i.id, false, reload) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Move down") }
-                TextButton(onClick = { d.deletePlanItem(i.id, reload) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Remove") }
+                if (!first) TextButton(onClick = { d.movePlanItem(i.id, true, reload) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Move ${i.title} up")) { Text("Move up") }
+                if (!last) TextButton(onClick = { d.movePlanItem(i.id, false, reload) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Move ${i.title} down")) { Text("Move down") }
+                TextButton(onClick = { d.deletePlanItem(i.id, reload) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Remove ${i.title}")) { Text("Remove") }
             }
         }
     }
@@ -244,18 +243,18 @@ private fun AddItemForm(d: DataController, planId: String, onDone: () -> Unit) {
     var notes by remember { mutableStateOf("") }
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp)) {
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 listOf("drill" to "Drill", "stage" to "Stage", "event" to "Event").forEach { (k, l) ->
                     FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(l) },
-                        modifier = Modifier.padding(end = 8.dp).testTag("item_kind_$k"))
+                        modifier = Modifier.oneOf().padding(end = 8.dp).testTag("item_kind_$k"))
                 }
             }
             if (kind == "drill") {
                 Text("Drill", fontWeight = FontWeight.Bold)
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     drills.forEach { dr ->
                         FilterChip(selected = drill?.drillId == dr.drillId, onClick = { drill = dr; if (strings.isBlank()) strings = dr.input.repeats.toString() },
-                            label = { Text(dr.input.title) }, modifier = Modifier.padding(end = 6.dp).testTag("pick_${dr.drillId}"))
+                            label = { Text(dr.input.title) }, modifier = Modifier.oneOf().padding(end = 6.dp).testTag("pick_${dr.drillId}"))
                     }
                 }
                 OutlinedTextField(strings, { strings = it.filter(Char::isDigit).take(2) }, label = { Text("Strings to run") }, singleLine = true,
@@ -289,14 +288,17 @@ private fun ChecklistEditor(d: DataController, planId: String?, items: List<Chec
     var text by remember { mutableStateOf("") }
     items.forEach { c ->
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-            if (planId != null) Checkbox(checked = c.checked, onCheckedChange = { d.setChecked(c.id, it, reload) }, modifier = Modifier.testTag("check_${c.text}"))
-            Text(c.text, modifier = Modifier.weight(1f))
-            TextButton(onClick = { d.deleteChecklistItem(c.id, reload) }) { Text("Remove") }
+            if (planId != null) {
+                LabeledToggle(c.text, c.checked, { d.setChecked(c.id, it, reload) }, Modifier.weight(1f), checkbox = true, tag = "check_${c.text}")
+            } else {
+                Text(c.text, modifier = Modifier.weight(1f))
+            }
+            TextButton(onClick = { d.deleteChecklistItem(c.id, reload) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Remove ${c.text}")) { Text("Remove") }
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(text, { text = it.take(200) }, label = { Text("Add item") }, singleLine = true, modifier = Modifier.weight(1f).testTag("checklist_new"))
-        TextButton(onClick = { if (text.isNotBlank()) { d.addChecklistItem(planId, text, reload); text = "" } }, modifier = Modifier.testTag("checklist_add")) { Text("Add") }
+        TextButton(onClick = { if (text.isNotBlank()) { d.addChecklistItem(planId, text, reload); text = "" } }, modifier = Modifier.heightIn(min = 48.dp).testTag("checklist_add").spoken("Add checklist item")) { Text("Add") }
     }
 }
 
@@ -306,7 +308,7 @@ fun ChecklistTemplateScreen(d: DataController, onBack: () -> Unit) {
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(version) { items = d.checklistTemplate() }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = onBack) { Text("‹ Practice") }
+        BackButton("Practice", "Back to Practice", onBack)
         Text("Checklist template", style = MaterialTheme.typography.headlineSmall)
         Text("Copied into each new day plan. Changing it does not change existing plans." +
             if (items.isEmpty()) " While it is empty, new plans get a basic range-day list." else "",
@@ -355,11 +357,7 @@ private fun WalkthroughTimer() {
                         left = m * 60_000L
                     }, modifier = Modifier.heightIn(min = 48.dp).testTag("walk_start")) { Text("Start") }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Switch(checked = tone, onCheckedChange = { tone = it })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Beep at the end")
-                }
+                LabeledToggle("Beep at the end", tone, { tone = it })
             } else {
                 val s = (left + 999) / 1000
                 Text(String.format(Locale.US, "%d:%02d", s / 60, s % 60), fontSize = 40.sp, fontWeight = FontWeight.Black,

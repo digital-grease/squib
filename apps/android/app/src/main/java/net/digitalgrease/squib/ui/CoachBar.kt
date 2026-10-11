@@ -1,13 +1,12 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -55,21 +54,17 @@ fun CoachBar(d: DataController, locked: Boolean, afterRun: Boolean) {
                 }
             }
             if (open && !locked) {
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     shooters.forEach { sh ->
                         FilterChip(selected = sh.active, onClick = { d.setActiveShooter(sh.id) }, label = { Text(sh.name) },
-                            modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("pick_shooter_${sh.name}"))
+                            modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp).testTag("pick_shooter_${sh.name}"))
                     }
                 }
                 val c = coach
                 if (c != null && shooters.size > 1) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Switch(checked = c.enabled, onCheckedChange = { on ->
-                            d.setCoach(on, if (c.squad.isEmpty()) shooters.map { it.id } else c.squad.map { it.id })
-                        }, modifier = Modifier.testTag("coach_mode"))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Coach rotation: offer the next shooter after each run")
-                    }
+                    LabeledToggle("Coach rotation: offer the next shooter after each run", c.enabled, { on ->
+                        d.setCoach(on, if (c.squad.isEmpty()) shooters.map { it.id } else c.squad.map { it.id })
+                    }, tag = "coach_mode")
                     if (c.enabled) {
                         Text("Order: " + c.squad.joinToString(" → ") { it.name }, style = MaterialTheme.typography.bodySmall)
                         Text("Tap a name to add it or move it to the end; tap the last name to remove it.", style = MaterialTheme.typography.bodySmall)

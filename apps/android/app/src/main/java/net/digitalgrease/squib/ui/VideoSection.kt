@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import android.widget.VideoView
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,13 +104,13 @@ private fun VideoClipCard(root: File, clip: VideoClipView) {
             if (clip.markers.isNotEmpty()) {
                 Text("Markers are accurate to about ±${clip.uncertaintyMs} ms (one video frame) at best. Tap one to jump just before it.",
                     style = MaterialTheme.typography.bodySmall)
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     clip.markers.forEach { m ->
                         FilterChip(
                             selected = current == m,
                             onClick = { view?.let { it.seekTo((m.fileMs - 1000).coerceAtLeast(0).toInt()); it.start() } },
                             label = { Text(markerText(m)) },
-                            modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp).testTag("marker_${m.kind}"),
+                            modifier = Modifier.oneOf().padding(end = 6.dp).heightIn(min = 48.dp).testTag("marker_${m.kind}"),
                         )
                     }
                 }

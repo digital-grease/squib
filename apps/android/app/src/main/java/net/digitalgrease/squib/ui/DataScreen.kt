@@ -15,7 +15,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,7 +50,7 @@ fun DataScreen(
     var cost by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("USD") }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹ Back") }
+        BackButton("Back", "Back to History", onBack)
         Text("Data and backup", style = MaterialTheme.typography.headlineMedium)
 
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
@@ -61,14 +60,8 @@ fun DataScreen(
                     "A full copy of your history to restore on this or another phone. It is not encrypted and is private: it can include saved places, notes, photos, and videos. Store it somewhere you trust.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Include photos and videos", modifier = Modifier.weight(1f))
-                    Switch(checked = photos, onCheckedChange = { photos = it })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Include diagnostic recordings (audio)", modifier = Modifier.weight(1f))
-                    Switch(checked = audio, onCheckedChange = { audio = it }, modifier = Modifier.testTag("backup_audio"))
-                }
+                LabeledToggle("Include photos and videos", photos, { photos = it }, controlAtEnd = true)
+                LabeledToggle("Include diagnostic recordings (audio)", audio, { audio = it }, controlAtEnd = true, tag = "backup_audio")
                 Button(onClick = { onExportBackup(photos, audio) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save backup") }
                 OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(top = 6.dp)) { Text("Restore from backup") }
             }

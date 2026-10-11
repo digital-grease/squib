@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import android.media.MediaPlayer
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -12,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -101,13 +101,13 @@ fun DiagnosticSection(d: DataController, runId: String, onExport: () -> Unit) {
                 Text(String.format(Locale.US, "%.2f s", pos / 1000.0) + (current?.let { "  ·  ${it.label}" } ?: ""),
                     modifier = Modifier.testTag("diag_position"))
             }
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 v.markers.forEach { m ->
                     FilterChip(
                         selected = current == m,
                         onClick = { player?.let { it.seekTo((m.fileMs - 300).coerceAtLeast(0).toInt()); it.start() } },
                         label = { Text(m.label + if (m.edited) " (edited)" else "") },
-                        modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp).testTag("diag_marker_${m.kind}"),
+                        modifier = Modifier.oneOf().padding(end = 6.dp).heightIn(min = 48.dp).testTag("diag_marker_${m.kind}"),
                     )
                 }
             }
@@ -158,10 +158,7 @@ private fun ExportPreview(p: DiagnosticPreview, onCancel: () -> Unit, onConfirm:
                 p.excludes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
                 Text("The file is saved where you choose. Squib does not send it anywhere.", style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp))
-                Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 8.dp)) {
-                    Checkbox(checked = consent, onCheckedChange = { consent = it }, modifier = Modifier.testTag("diag_consent"))
-                    Text(p.consentStatement, style = MaterialTheme.typography.bodySmall)
-                }
+                LabeledToggle(p.consentStatement, consent, { consent = it }, Modifier.padding(top = 8.dp), checkbox = true, small = true, tag = "diag_consent")
             }
         },
         confirmButton = {

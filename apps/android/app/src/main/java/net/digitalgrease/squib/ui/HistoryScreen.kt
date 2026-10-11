@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,14 +40,14 @@ private fun ShooterRow(d: DataController, locked: Boolean) {
     var adding by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     Text("Shooter", fontWeight = FontWeight.Bold)
-    FlowRow {
+    FlowRow(Modifier.selectableGroup()) {
         shooters.forEach { sh ->
             FilterChip(
                 selected = sh.active,
                 onClick = { if (!locked) d.setActiveShooter(sh.id) },
                 enabled = !locked,
                 label = { Text(sh.name) },
-                modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp),
+                modifier = Modifier.oneOf().padding(end = 8.dp).heightIn(min = 48.dp),
             )
         }
         TextButton(onClick = { adding = !adding }, enabled = !locked) { Text("+ Add") }
@@ -82,23 +83,23 @@ private fun AnalyticsCard(d: DataController) {
     Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Summary", fontWeight = FontWeight.Bold)
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 FilterChip(selected = f.drillId == null, onClick = { d.setFilter(f.copy(drillId = null, drillVersion = null)) },
-                    label = { Text("All runs") }, modifier = Modifier.padding(end = 6.dp))
+                    label = { Text("All runs") }, modifier = Modifier.oneOf().padding(end = 6.dp))
                 drills.forEach { dr ->
                     FilterChip(selected = f.drillId == dr.drillId,
                         onClick = { d.setFilter(f.copy(drillId = dr.drillId, drillVersion = null)) },
-                        label = { Text(dr.input.title) }, modifier = Modifier.padding(end = 6.dp))
+                        label = { Text(dr.input.title) }, modifier = Modifier.oneOf().padding(end = 6.dp))
                 }
             }
             val equipment by d.equipment.collectAsState()
             if (equipment.isNotEmpty()) {
-                FlowRow {
+                FlowRow(Modifier.selectableGroup()) {
                     FilterChip(selected = f.equipmentId == null, onClick = { d.setFilter(f.copy(equipmentId = null)) },
-                        label = { Text("Any equipment") }, modifier = Modifier.padding(end = 6.dp))
+                        label = { Text("Any equipment") }, modifier = Modifier.oneOf().padding(end = 6.dp))
                     equipment.forEach { e ->
                         FilterChip(selected = f.equipmentId == e.id, onClick = { d.setFilter(f.copy(equipmentId = e.id)) },
-                            label = { Text(e.name) }, modifier = Modifier.padding(end = 6.dp).testTag("filter_equipment_${e.name}"))
+                            label = { Text(e.name) }, modifier = Modifier.oneOf().padding(end = 6.dp).testTag("filter_equipment_${e.name}"))
                     }
                 }
             }

@@ -1,6 +1,7 @@
 package net.digitalgrease.squib.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -102,13 +103,13 @@ fun PracticeScreen(
                     Text("Version ${dr.version}", style = MaterialTheme.typography.bodySmall)
                     FlowRow {
                         if (dr.input.manual) {
-                            Button(onClick = { manualFor = dr; manualOpen = true }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("enter_result_${dr.input.title}")) { Text("Enter result") }
+                            Button(onClick = { manualFor = dr; manualOpen = true }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("enter_result_${dr.input.title}").spoken("Enter result for ${dr.input.title}")) { Text("Enter result") }
                         } else {
-                            Button(onClick = { onStartDrill(dr) }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("start_${dr.drillId}")) { Text("Start") }
+                            Button(onClick = { onStartDrill(dr) }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).testTag("start_${dr.drillId}").spoken("Start ${dr.input.title}")) { Text("Start") }
                         }
-                        OutlinedButton(onClick = { editing = dr }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) { Text("Edit") }
-                        TextButton(onClick = { scope.launch { onShareDrill(dr, d.drillFile(dr)) } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Share") }
-                        TextButton(onClick = { d.archiveDrill(dr.drillId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Archive") }
+                        OutlinedButton(onClick = { editing = dr }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).spoken("Edit ${dr.input.title}")) { Text("Edit") }
+                        TextButton(onClick = { scope.launch { onShareDrill(dr, d.drillFile(dr)) } }, modifier = Modifier.heightIn(min = 48.dp).spoken("Share ${dr.input.title}")) { Text("Share") }
+                        TextButton(onClick = { d.archiveDrill(dr.drillId) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Archive ${dr.input.title}")) { Text("Archive") }
                     }
                 }
             }
@@ -139,13 +140,13 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
     var keepBest by remember { mutableStateOf(e?.keepBest?.toString() ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = onDone) { Text("‹ Cancel") }
+        BackButton("Cancel", "Cancel", onDone)
         Text(if (existing == null) "New drill" else "Edit drill (creates version ${existing.version + 1u})", style = MaterialTheme.typography.headlineSmall)
         OutlinedTextField(title, { title = it.take(80) }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("drill_title"))
         OutlinedTextField(desc, { desc = it.take(1000) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
-        FlowRow {
+        FlowRow(Modifier.selectableGroup()) {
             listOf("par" to "Par-only", "live" to "Live shots", "manual" to "Manual result").forEach { (k, l) ->
-                FilterChip(selected = mode == k, onClick = { mode = k }, label = { Text(l) }, modifier = Modifier.padding(end = 8.dp))
+                FilterChip(selected = mode == k, onClick = { mode = k }, label = { Text(l) }, modifier = Modifier.oneOf().padding(end = 8.dp))
             }
         }
         if (mode != "manual") {
@@ -168,24 +169,24 @@ private fun DrillEditor(d: DataController, existing: DrillView?, onDone: () -> U
             }
         }
         Text("Scoring (generic practice)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-        FlowRow {
+        FlowRow(Modifier.selectableGroup()) {
             d.profiles.forEach { p ->
                 FilterChip(selected = profile == p.id, onClick = {
                     profile = p.id
                     // Hit factors cannot be totalled.
                     if (p.id == "generic-points-hf" && setResult == "sum") setResult = "mean"
-                }, label = { Text(p.title) }, modifier = Modifier.padding(end = 8.dp))
+                }, label = { Text(p.title) }, modifier = Modifier.oneOf().padding(end = 8.dp))
             }
         }
         val nStrings = repeats.toIntOrNull() ?: 1
         if (nStrings >= 2) {
             Text("Set result", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
             val hitFactor = profile == "generic-points-hf"
-            FlowRow {
+            FlowRow(Modifier.selectableGroup()) {
                 listOf(null to "None", "sum" to "Total", "mean" to "Average").forEach { (k, l) ->
                     val allowed = !(hitFactor && k == "sum")
                     FilterChip(selected = setResult == k, enabled = allowed, onClick = { setResult = k }, label = { Text(l) },
-                        modifier = Modifier.padding(end = 8.dp).testTag("set_${k ?: "none"}"))
+                        modifier = Modifier.oneOf().padding(end = 8.dp).testTag("set_${k ?: "none"}"))
                 }
             }
             if (setResult != null) {
@@ -229,15 +230,15 @@ internal fun ManualEntry(d: DataController, drill: DrillView?, planItemId: Strin
     var precision by remember { mutableStateOf(10) }
     var times by remember { mutableStateOf("") }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = { onDone(null) }) { Text("‹ Cancel") }
+        BackButton("Cancel", "Cancel") { onDone(null) }
         Text("Enter a result from another timer", style = MaterialTheme.typography.headlineSmall)
         drill?.let { Text("Drill: ${it.input.title} (v${it.version})") }
         Text("Times are kept at the timer's own precision and marked as manual; no detection is involved.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(label, { label = it.take(80) }, label = { Text("Timer name, e.g. Club timer") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("manual_label"))
         Text("Timer precision", modifier = Modifier.padding(top = 8.dp))
-        FlowRow {
+        FlowRow(Modifier.selectableGroup()) {
             listOf(1 to "0.001 s", 10 to "0.01 s", 100 to "0.1 s").forEach { (ms, l) ->
-                FilterChip(selected = precision == ms, onClick = { precision = ms }, label = { Text(l) }, modifier = Modifier.padding(end = 8.dp))
+                FilterChip(selected = precision == ms, onClick = { precision = ms }, label = { Text(l) }, modifier = Modifier.oneOf().padding(end = 8.dp))
             }
         }
         OutlinedTextField(
