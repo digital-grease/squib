@@ -98,6 +98,8 @@ pub enum Reason {
     /// Local actual pressure needs a local sensor or a manual actual-pressure entry.
     LocalPressureRequiresLocalSource,
     PreciseProvenanceNotRetained,
+    /// Ground height sampled from a terrain dataset at the place.
+    TerrainDataset,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -206,7 +208,7 @@ fn disagrees(field: Field, a: Value, b: Value) -> bool {
                     let c = d % 360.0;
                     c.min(360.0 - c) > 90.0
                 }
-                Field::ElevationMsl | Field::ElevationEllipsoid => d > 50.0,
+                Field::ElevationMsl | Field::ElevationEllipsoid | Field::ElevationTerrain => d > 50.0,
                 _ => d > 300.0,
             }
         }
@@ -285,6 +287,22 @@ pub fn resolve_field(
             reasons: vec![Reason::LocalSensor],
             alternatives,
         };
+    }
+
+    // Terrain elevation comes only from a terrain dataset at the place (or manual entry).
+    if field == Field::ElevationTerrain {
+        if let Some(c) = all.iter().find(|c| c.source == SourceKind::TerrainDataset && usable(c)) {
+            return ResolvedField {
+                field,
+                chosen: Some((*c).clone()),
+                origin: Origin::Terrain,
+                freshness: Some(Freshness::Fresh),
+                reasons: vec![Reason::TerrainDataset],
+                alternatives: vec![],
+                disagreement: false,
+            };
+        }
+        return unavailable(vec![Reason::NoCandidates], vec![]);
     }
 
     // Local actual pressure never falls back to a remote or reduced value (A10);

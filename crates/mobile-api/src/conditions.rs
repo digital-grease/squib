@@ -7,12 +7,14 @@ use std::sync::MutexGuard;
 use squib_environment::metar::{self, MetarRefresh};
 use squib_environment::nws::{self, CachedDoc, DocCache, HttpResponse, NwsRefresh, Step, TransportError};
 use squib_environment::privacy::LocationRetention;
+use squib_environment::terrain::{self, TerrainLookup};
 use squib_environment::{
     ElevationComparison, EnvironmentSnapshot, Field, MeasurementCandidate, Origin, Override, ReferencePlace, ResolvedField,
     ResolverPolicy, Value, local, resolve,
 };
 use squib_storage::{
-    Repository, SETTING_LAST_PLACE, SETTING_LOCATION_RETENTION, SETTING_WEATHER_ENABLED, SETTING_WEATHER_PROVIDER, SavedPlace,
+    Repository, SETTING_LAST_PLACE, SETTING_LOCATION_RETENTION, SETTING_TERRAIN_ENABLED, SETTING_TERRAIN_POINT,
+    SETTING_WEATHER_ENABLED, SETTING_WEATHER_PROVIDER, SavedPlace,
 };
 
 use crate::engine::SquibEngine;
@@ -44,6 +46,12 @@ pub struct CondState {
     pub remote: Vec<MeasurementCandidate>,
     pub issues: Vec<nws::ProviderIssue>,
     pub refresh: Option<Refresh>,
+    /// Opt-in terrain lookup in progress, its result, and its issues (apart from weather).
+    pub terrain: Option<squib_environment::terrain::TerrainLookup>,
+    pub terrain_value: Vec<MeasurementCandidate>,
+    pub terrain_issues: Vec<nws::ProviderIssue>,
+    /// The place to about 10 m for terrain; set only while terrain lookup is on.
+    pub terrain_point: Option<(f64, f64)>,
     pub last_refresh_utc_ms: Option<i64>,
     pub used_cache: bool,
     /// Requests retried during the last refresh.
@@ -86,6 +94,8 @@ pub struct HttpRequestFfi {
     pub max_body_bytes: u32,
     /// Wait this long before sending: a scheduled retry after a transient failure.
     pub delay_ms: u32,
+    /// Read timeout for this request; 0 means the transport's default.
+    pub timeout_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -142,6 +152,10 @@ pub struct FieldView {
     pub original_unit: Option<String>,
     pub datum: Option<String>,
     pub accuracy: Option<f64>,
+    /// What `accuracy` means, as the source states it.
+    pub accuracy_meaning: Option<String>,
+    /// Dataset a terrain value was sampled from.
+    pub dataset: Option<String>,
     pub reasons: Vec<String>,
     pub alternatives: Vec<AlternativeView>,
     pub disagreement: bool,
@@ -159,6 +173,10 @@ pub struct PlaceView {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ConditionsView {
     pub weather_enabled: bool,
+    /// Opt-in USGS terrain lookup (sends the place to about 10 m).
+    pub terrain_enabled: bool,
+    /// Terrain is on but the place was chosen before, so its 10 m point is not known.
+    pub terrain_needs_place: bool,
     pub precise_retention: bool,
     pub place: Option<PlaceView>,
     pub fields: Vec<FieldView>,
@@ -200,6 +218,7 @@ pub fn field_label(f: Field) -> &'static str {
         Field::SeaLevelPressure => "Sea-level pressure",
         Field::ElevationMsl => "Elevation (above sea level)",
         Field::ElevationEllipsoid => "GPS height (ellipsoid)",
+        Field::ElevationTerrain => "Terrain elevation (ground)",
     }
 }
 
@@ -216,6 +235,7 @@ fn reason_text(r: squib_environment::Reason) -> &'static str {
         AllExpired => "Station data is too old",
         LocalPressureRequiresLocalSource => "Needs a phone barometer or your entry; station values are not local pressure",
         PreciseProvenanceNotRetained => "Precise provenance not retained",
+        TerrainDataset => "Ground height from USGS 3DEP terrain data at your place",
     }
 }
 
@@ -240,6 +260,7 @@ fn source_label(c: &MeasurementCandidate) -> String {
             "android_location" => "Phone location".into(),
             "manual" => "Your entry".into(),
             "nws" => "Nearby station".into(),
+            "usgs_epqs" => "USGS terrain data".into(),
             other => other.into(),
         },
     }
@@ -268,6 +289,8 @@ pub fn field_view(r: &ResolvedField, now_utc_ms: i64) -> FieldView {
         original_unit: c.and_then(|c| c.original_unit.clone()),
         datum: c.and_then(|c| c.datum).and_then(|d| serde_json::to_value(d).ok()).and_then(|v| v.as_str().map(String::from)),
         accuracy: c.and_then(|c| c.accuracy),
+        accuracy_meaning: c.and_then(|c| c.accuracy_meaning.clone()),
+        dataset: c.and_then(|c| c.dataset.clone()),
         reasons: r.reasons.iter().map(|x| reason_text(*x).to_string()).collect(),
         alternatives: r
             .alternatives
@@ -288,7 +311,7 @@ fn elevation_note(e: &ElevationComparison) -> String {
             format!("Elevation sources agree within {:.0} m (same reference).", difference_m.abs())
         }
         ElevationComparison::DatumMismatch { .. } => {
-            "GPS ellipsoid height and sea-level elevation use different references; comparison unavailable.".into()
+            "Elevation readings with different references (GPS ellipsoid, phone sea level, NAVD88 terrain); comparison unavailable.".into()
         }
         ElevationComparison::UnknownDatum { .. } => {
             "An elevation source has an unknown reference; comparison unavailable.".into()
@@ -316,6 +339,8 @@ fn issue_text(i: &nws::ProviderIssue) -> String {
         DisallowedUrl { .. } => "Weather service returned a link Squib does not follow.".into(),
         RejectedValue { field, reason, .. } => format!("Ignored a {} value ({reason}).", field_label(*field).to_lowercase()),
         DeadlineExceeded => "Weather refresh took too long; partial results shown.".into(),
+        TerrainNotCovered => "USGS terrain data does not cover this place (US only).".into(),
+        TerrainNoData => "USGS terrain data has no ground height here (open water?).".into(),
     }
 }
 
@@ -340,30 +365,34 @@ impl DocCache for EngineCache<'_> {
     }
 }
 
-fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i64) -> ConditionsStep {
+fn to_ffi(reqs: Vec<nws::HttpRequest>, provider: &'static str) -> Vec<HttpRequestFfi> {
     let (accept, max_body, allowed): (&str, usize, fn(&str) -> bool) = if provider == metar::PROVIDER {
         (metar::ACCEPT, metar::MAX_BODY_BYTES, metar::url_allowed)
+    } else if provider == terrain::PROVIDER {
+        (terrain::ACCEPT, terrain::MAX_BODY_BYTES, terrain::url_allowed)
     } else {
         (nws::ACCEPT, nws::MAX_BODY_BYTES, nws::url_allowed)
     };
+    reqs.into_iter()
+        // Defence in depth: planners only build allowed URLs.
+        .filter(|r| allowed(&r.url))
+        .map(|r| HttpRequestFfi {
+            id: r.id,
+            url: r.url,
+            user_agent: nws::USER_AGENT.into(),
+            accept: accept.into(),
+            if_none_match: r.if_none_match,
+            max_body_bytes: max_body as u32,
+            delay_ms: r.delay_ms,
+            timeout_ms: r.timeout_ms,
+        })
+        .collect()
+}
+
+/// Weather step: requests to send, or the finished weather result stored in `st`.
+fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i64) -> ConditionsStep {
     match step {
-        Step::Fetch(reqs) => ConditionsStep {
-            requests: reqs
-                .into_iter()
-                // Defence in depth: planners only build allowed URLs.
-                .filter(|r| allowed(&r.url))
-                .map(|r| HttpRequestFfi {
-                    id: r.id,
-                    url: r.url,
-                    user_agent: nws::USER_AGENT.into(),
-                    accept: accept.into(),
-                    if_none_match: r.if_none_match,
-                    max_body_bytes: max_body as u32,
-                    delay_ms: r.delay_ms,
-                })
-                .collect(),
-            done: false,
-        },
+        Step::Fetch(reqs) => ConditionsStep { requests: to_ffi(reqs, provider), done: false },
         Step::Done(res) => {
             st.refresh = None;
             st.remote = res.candidates;
@@ -375,6 +404,22 @@ fn to_step(step: Step, provider: &'static str, st: &mut CondState, now_utc_ms: i
         }
     }
 }
+
+/// Terrain step: requests to send, or the finished terrain result stored in `st`.
+fn terrain_step(step: Step, st: &mut CondState) -> Vec<HttpRequestFfi> {
+    match step {
+        Step::Fetch(reqs) => to_ffi(reqs, terrain::PROVIDER),
+        Step::Done(res) => {
+            st.terrain = None;
+            st.terrain_value = res.candidates;
+            st.terrain_issues = res.issues;
+            vec![]
+        }
+    }
+}
+
+/// Weather request ids start at 1; terrain ids are kept well apart.
+const TERRAIN_FIRST_ID: u32 = 1_000_000;
 
 impl SquibEngine {
     pub(crate) fn weather_provider(&self) -> String {
@@ -403,6 +448,7 @@ impl SquibEngine {
         let overrides = self.read_repo().list_overrides().unwrap_or_default();
         let mut cands = st.remote.clone();
         cands.extend(st.device.iter().cloned());
+        cands.extend(st.terrain_value.iter().cloned());
         let mut place = st.place.clone();
         if let Some(p) = place.as_mut() {
             // Station elevation penalties use a compatible (MSL) local elevation only.
@@ -411,6 +457,9 @@ impl SquibEngine {
                 .find(|o| o.candidate.field == Field::ElevationMsl && o.active(now_utc_ms))
                 .map(|o| &o.candidate)
                 .or_else(|| st.device.iter().find(|c| c.field == Field::ElevationMsl))
+                // Terrain (NAVD88) is close enough to sea-level height for this coarse
+                // 100 m-scale station ranking; it is never shown as a comparison.
+                .or_else(|| st.terrain_value.first())
                 .and_then(|c| c.value.si());
             p.elevation_msl_m = msl;
         }
@@ -440,6 +489,13 @@ impl SquibEngine {
         if let Some(p) = saved.and_then(|j| serde_json::from_str::<ReferencePlace>(&j).ok()) {
             self.cond().place = Some(p);
         }
+        if self.settings_bool(SETTING_TERRAIN_ENABLED)
+            && let Some(v) = self.read_repo().get_setting(SETTING_TERRAIN_POINT).ok().flatten()
+            && let Some((a, b)) = v.split_once(',')
+            && let (Ok(a), Ok(b)) = (a.parse::<f64>(), b.parse::<f64>())
+        {
+            self.cond().terrain_point = terrain::lookup_coords(a, b);
+        }
     }
 
     fn cond(&self) -> MutexGuard<'_, CondState> {
@@ -454,6 +510,8 @@ impl SquibEngine {
         let snap = self.resolve_now(&st, now_utc_ms);
         ConditionsView {
             weather_enabled: self.settings_bool(SETTING_WEATHER_ENABLED),
+            terrain_enabled: self.settings_bool(SETTING_TERRAIN_ENABLED),
+            terrain_needs_place: self.settings_bool(SETTING_TERRAIN_ENABLED) && st.place.is_some() && st.terrain_point.is_none(),
             precise_retention: self.retention() == LocationRetention::Precise,
             place: st.place.as_ref().map(|p| PlaceView {
                 lat: p.lat,
@@ -463,12 +521,12 @@ impl SquibEngine {
             }),
             fields: conditions_view_of(&snap, now_utc_ms),
             elevation_notes: snap.elevation_comparisons.iter().map(elevation_note).collect(),
-            issues: st.issues.iter().map(issue_text).collect(),
+            issues: st.issues.iter().chain(st.terrain_issues.iter()).map(issue_text).collect(),
             attribution: snap.attribution.clone(),
             last_refresh_utc_ms: st.last_refresh_utc_ms,
             used_cache: st.used_cache,
             retries: st.retries,
-            refreshing: st.refresh.is_some(),
+            refreshing: st.refresh.is_some() || st.terrain.is_some(),
             allow_older: st.allow_older,
             redacted: false,
             weather_provider: self.weather_provider(),
@@ -529,7 +587,20 @@ impl SquibEngine {
         let remember = new_place.source != "gps" || self.retention() == LocationRetention::Precise;
         let json = if remember { serde_json::to_string(&new_place).unwrap_or_default() } else { String::new() };
         self.store_actor().exec(move |repo| repo.set_setting(SETTING_LAST_PLACE, &json))?;
+        // Terrain needs the place to about 10 m; kept only while terrain lookup is on.
+        let point = if self.settings_bool(SETTING_TERRAIN_ENABLED) { terrain::lookup_coords(place.lat, place.lon) } else { None };
+        let point_json = match point {
+            Some((a, b)) if remember => format!("{a:.4},{b:.4}"),
+            _ => String::new(),
+        };
+        self.store_actor().exec(move |repo| repo.set_setting(SETTING_TERRAIN_POINT, &point_json))?;
         let mut st = self.cond();
+        if st.terrain_point != point {
+            st.terrain = None;
+            st.terrain_value.clear();
+            st.terrain_issues.clear();
+            st.terrain_point = point;
+        }
         let moved = st.place.as_ref().is_none_or(|p| nws::distance_m(p.lat, p.lon, lat, lon) > 1000.0);
         st.place = Some(new_place);
         if moved {
@@ -552,34 +623,54 @@ impl SquibEngine {
         self.cond().device = out;
     }
 
-    /// Begin a weather refresh for the current place. Returns the first requests.
+    /// Begin a refresh for the current place: weather and terrain, each if enabled.
+    /// Returns the first requests. Weather and terrain run independently: a slow terrain
+    /// service never holds back weather results.
     pub fn conditions_refresh(&self, now_utc_ms: i64) -> Result<ConditionsStep, SquibError> {
-        if !self.settings_bool(SETTING_WEATHER_ENABLED) {
-            return Err(SquibError::Rejected("weather lookup is off".into()));
+        let weather = self.settings_bool(SETTING_WEATHER_ENABLED);
+        let terrain_on = self.settings_bool(SETTING_TERRAIN_ENABLED);
+        if !weather && !terrain_on {
+            return Err(SquibError::Rejected("weather and terrain lookups are off".into()));
         }
+        // Settings first: they take the read lock, which is held below.
+        let metar_only = self.weather_provider() == "metar";
         let mut st = self.cond();
         let Some(place) = st.place.clone() else { return Err(SquibError::Rejected("choose a place first".into())) };
-        let metar_only = self.weather_provider() == "metar";
         let read = self.read_repo();
-        let started = if metar_only {
-            let cache = EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER };
-            MetarRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache)
-                .map(|(r, s)| (Refresh::Metar(r), s))
-        } else {
-            let cache = EngineCache { read: &read, store: self.store_actor(), provider: nws::PROVIDER };
-            NwsRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache).map(|(r, s)| (Refresh::Nws(r), s))
-        };
-        let Some((r, step)) = started else {
-            return Err(SquibError::Invalid("invalid place".into()));
-        };
-        let provider = r.provider();
-        st.refresh = Some(r);
-        Ok(to_step(step, provider, &mut st, now_utc_ms))
+        let mut requests = vec![];
+        if weather {
+            let started = if metar_only {
+                let cache = EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER };
+                MetarRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache)
+                    .map(|(r, s)| (Refresh::Metar(r), s))
+            } else {
+                let cache = EngineCache { read: &read, store: self.store_actor(), provider: nws::PROVIDER };
+                NwsRefresh::start(place.lat, place.lon, now_utc_ms, REFRESH_DEADLINE_MS, &cache)
+                    .map(|(r, s)| (Refresh::Nws(r), s))
+            };
+            let Some((r, step)) = started else {
+                return Err(SquibError::Invalid("invalid place".into()));
+            };
+            let provider = r.provider();
+            st.refresh = Some(r);
+            requests.extend(to_step(step, provider, &mut st, now_utc_ms).requests);
+        }
+        if terrain_on && let Some((lat, lon)) = st.terrain_point {
+            let cache = EngineCache { read: &read, store: self.store_actor(), provider: terrain::PROVIDER };
+            if let Some((t, step)) = TerrainLookup::start(lat, lon, now_utc_ms, TERRAIN_FIRST_ID, &cache) {
+                st.terrain = Some(t);
+                requests.extend(terrain_step(step, &mut st));
+            }
+        }
+        if !weather {
+            st.last_refresh_utc_ms = Some(now_utc_ms);
+        }
+        let done = st.refresh.is_none() && st.terrain.is_none();
+        Ok(ConditionsStep { requests, done })
     }
 
     pub fn conditions_response(&self, resp: HttpResponseFfi, now_utc_ms: i64) -> ConditionsStep {
         let mut st = self.cond();
-        let Some(mut r) = st.refresh.take() else { return ConditionsStep { requests: vec![], done: true } };
         let error = resp.error.as_deref().map(|e| match e {
             "offline" => TransportError::Offline,
             "timeout" => TransportError::Timeout,
@@ -598,32 +689,62 @@ impl SquibEngine {
             unit_random: resp.unit_random,
         };
         let read = self.read_repo();
-        let provider = r.provider();
-        let mut cache = EngineCache { read: &read, store: self.store_actor(), provider };
-        let step = match &mut r {
-            Refresh::Nws(n) => n.on_response(resp, now_utc_ms, &mut cache),
-            Refresh::Metar(m) => m.on_response(resp, now_utc_ms, &mut cache),
-        };
-        // Auto: where NWS has no data (outside the US), continue with METAR reports.
-        if let (Refresh::Nws(n), Step::Done(res)) = (&r, &step)
-            && res.issues.contains(&nws::ProviderIssue::UnsupportedLocation)
-            && let Some((m, next)) = MetarRefresh::start(
-                n.lookup().0,
-                n.lookup().1,
-                now_utc_ms,
-                REFRESH_DEADLINE_MS,
-                &EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER },
-            )
-        {
-            drop(read);
-            st.refresh = Some(Refresh::Metar(m));
-            return to_step(next, metar::PROVIDER, &mut st, now_utc_ms);
+        let mut requests = vec![];
+        if st.terrain.as_ref().is_some_and(|t| t.owns(resp.id)) {
+            let mut t = st.terrain.take().expect("checked");
+            let mut cache = EngineCache { read: &read, store: self.store_actor(), provider: terrain::PROVIDER };
+            let step = t.on_response(resp, now_utc_ms, &mut cache);
+            if matches!(step, Step::Fetch(_)) {
+                st.terrain = Some(t);
+            }
+            requests = terrain_step(step, &mut st);
+        } else if let Some(mut r) = st.refresh.take() {
+            let provider = r.provider();
+            let mut cache = EngineCache { read: &read, store: self.store_actor(), provider };
+            let step = match &mut r {
+                Refresh::Nws(n) => n.on_response(resp, now_utc_ms, &mut cache),
+                Refresh::Metar(m) => m.on_response(resp, now_utc_ms, &mut cache),
+            };
+            // Auto: where NWS has no data (outside the US), continue with METAR reports.
+            if let (Refresh::Nws(n), Step::Done(res)) = (&r, &step)
+                && res.issues.contains(&nws::ProviderIssue::UnsupportedLocation)
+                && let Some((m, next)) = MetarRefresh::start(
+                    n.lookup().0,
+                    n.lookup().1,
+                    now_utc_ms,
+                    REFRESH_DEADLINE_MS,
+                    &EngineCache { read: &read, store: self.store_actor(), provider: metar::PROVIDER },
+                )
+            {
+                st.refresh = Some(Refresh::Metar(m));
+                requests = to_step(next, metar::PROVIDER, &mut st, now_utc_ms).requests;
+            } else {
+                if matches!(step, Step::Fetch(_)) {
+                    st.refresh = Some(r);
+                }
+                requests = to_step(step, provider, &mut st, now_utc_ms).requests;
+            }
         }
         drop(read);
-        if matches!(step, Step::Fetch(_)) {
-            st.refresh = Some(r);
+        let done = st.refresh.is_none() && st.terrain.is_none();
+        ConditionsStep { requests, done }
+    }
+
+    /// Terrain lookup sends the place to about 10 m to the USGS Elevation Point Query
+    /// Service: off until enabled, separate from weather. Turning it off forgets the
+    /// precise point and the terrain value.
+    pub fn set_terrain_enabled(&self, enabled: bool) -> Result<(), SquibError> {
+        let v = if enabled { "true" } else { "false" };
+        self.store_actor().exec(move |repo| repo.set_setting(SETTING_TERRAIN_ENABLED, v))?;
+        if !enabled {
+            self.store_actor().exec(|repo| repo.set_setting(SETTING_TERRAIN_POINT, ""))?;
+            let mut st = self.cond();
+            st.terrain = None;
+            st.terrain_point = None;
+            st.terrain_value.clear();
+            st.terrain_issues.clear();
         }
-        to_step(step, provider, &mut st, now_utc_ms)
+        Ok(())
     }
 
     /// Manual value for one field, in SI. `entered_*` preserves what the user typed.
@@ -661,6 +782,8 @@ impl SquibEngine {
         let n = self.store_actor().exec(|repo| repo.cache_clear())?;
         let mut st = self.cond();
         st.remote.clear();
+        st.terrain_value.clear();
+        st.terrain_issues.clear();
         st.issues.clear();
         st.last_refresh_utc_ms = None;
         Ok(n as u32)
@@ -695,6 +818,8 @@ impl SquibEngine {
         let d = self.read_repo().load_run(&run_id)?;
         Ok(d.environment.map(|s| ConditionsView {
             weather_enabled: true,
+            terrain_enabled: false,
+            terrain_needs_place: false,
             precise_retention: !s.redacted,
             place: s.reference.as_ref().map(|p| PlaceView {
                 lat: p.lat,

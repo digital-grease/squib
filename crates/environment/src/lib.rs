@@ -11,6 +11,7 @@ pub mod nws;
 pub mod privacy;
 pub mod resolver;
 pub mod retry;
+pub mod terrain;
 pub mod time;
 pub mod units;
 
@@ -23,6 +24,7 @@ pub fn attribution_for(provider: &str) -> Option<&'static str> {
     match provider {
         nws::PROVIDER => Some(nws::ATTRIBUTION),
         metar::PROVIDER => Some(metar::ATTRIBUTION),
+        terrain::PROVIDER => Some(terrain::ATTRIBUTION),
         _ => None,
     }
 }

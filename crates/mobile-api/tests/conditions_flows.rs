@@ -360,3 +360,119 @@ fn a_transient_server_error_is_retried_after_a_delay_and_reported_as_a_retry() {
     assert!(v.issues.is_empty(), "{:?}", v.issues);
     assert_eq!(field(&v, "temperature").origin, "nearby_observation");
 }
+
+fn fx_epqs(name: &str) -> Vec<u8> {
+    std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/epqs").join(name)).unwrap()
+}
+
+#[test]
+fn terrain_is_opt_in_precise_only_while_on_and_never_holds_back_weather() {
+    let dir = std::env::temp_dir().join(format!("squib-cond-terrain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("journal.db").to_string_lossy().to_string();
+    let e = SquibEngine::new(db.clone(), NOW).unwrap();
+    e.set_weather_enabled(true).unwrap();
+    // A place chosen before terrain was turned on has no 10 m point.
+    e.set_place(PlaceInput { lat: 40.015049, lon: -105.270549, label: None, source: "manual".into() }).unwrap();
+    e.set_terrain_enabled(true).unwrap();
+    assert!(e.conditions_view(NOW).terrain_needs_place);
+    e.set_place(PlaceInput { lat: 40.015049, lon: -105.270549, label: None, source: "manual".into() }).unwrap();
+    let v = e.conditions_view(NOW);
+    assert!(v.terrain_enabled && !v.terrain_needs_place);
+    assert_eq!(v.place.as_ref().map(|p| (p.lat, p.lon)), Some((40.02, -105.27)), "weather still gets the 1 km place");
+
+    let mut step = e.conditions_refresh(NOW).unwrap();
+    let terrain_req =
+        step.requests.iter().find(|r| r.url.starts_with("https://epqs.nationalmap.gov/")).cloned().expect("terrain requested");
+    assert_eq!(
+        terrain_req.url,
+        "https://epqs.nationalmap.gov/v1/json?x=-105.2705&y=40.0150&wkid=4326&units=Meters&includeDate=true"
+    );
+    assert_eq!(terrain_req.timeout_ms, 30_000);
+    // Weather completes first while the slow terrain request is still out.
+    let mut queue: Vec<HttpRequestFfi> = step.requests.into_iter().filter(|r| r.id != terrain_req.id).collect();
+    while let Some(req) = (!queue.is_empty()).then(|| queue.remove(0)) {
+        let (status, body) = serve(&req.url);
+        step = e.conditions_response(
+            HttpResponseFfi {
+                id: req.id,
+                status,
+                body,
+                etag: None,
+                max_age_s: Some(300),
+                retry_after_s: None,
+                error: None,
+                unit_random: 0.5,
+            },
+            NOW + 1_000,
+        );
+        queue.extend(step.requests.clone());
+    }
+    assert!(!step.done, "not done while terrain is outstanding");
+    let v = e.conditions_view(NOW + 1_000);
+    assert_eq!(field(&v, "temperature").origin, "nearby_observation", "weather shown without waiting for terrain");
+    assert!(v.refreshing);
+    step = e.conditions_response(
+        HttpResponseFfi {
+            id: terrain_req.id,
+            status: 200,
+            body: fx_epqs("boulder_lidar_1m.json"),
+            etag: None,
+            max_age_s: None,
+            retry_after_s: None,
+            error: None,
+            unit_random: 0.5,
+        },
+        NOW + 20_000,
+    );
+    assert!(step.done && step.requests.is_empty());
+    let v = e.conditions_view(NOW + 20_000);
+    let t = field(&v, "elevation_terrain");
+    assert_eq!((t.origin.as_str(), t.datum.as_deref()), ("terrain", Some("navd88")));
+    assert!((t.value_si.unwrap() - 1621.26).abs() < 0.01);
+    assert!(v.attribution.iter().any(|a| a.contains("U.S. Geological Survey")));
+
+    // After a restart the point is remembered (a typed place) and the cache answers.
+    let e2 = SquibEngine::new(db.clone(), NOW + 30_000).unwrap();
+    let step = e2.conditions_refresh(NOW + 30_000).unwrap();
+    assert!(step.requests.iter().all(|r| !r.url.contains("epqs")), "terrain served from cache");
+    assert!(field(&e2.conditions_view(NOW + 30_000), "elevation_terrain").value_si.is_some());
+
+    // Turning terrain off forgets the 10 m point and the value; nothing is requested.
+    e2.set_terrain_enabled(false).unwrap();
+    let v = e2.conditions_view(NOW + 30_000);
+    assert_eq!(field(&v, "elevation_terrain").origin, "unavailable");
+    let e3 = SquibEngine::new(db, NOW + 40_000).unwrap();
+    e3.set_terrain_enabled(true).unwrap();
+    assert!(e3.conditions_view(NOW + 40_000).terrain_needs_place, "point was not kept after turning terrain off");
+}
+
+#[test]
+fn terrain_alone_works_without_weather_lookup() {
+    let e = engine("terrain-only");
+    e.set_terrain_enabled(true).unwrap();
+    assert!(e.conditions_refresh(NOW).is_err(), "no place yet");
+    e.set_place(PlaceInput { lat: 51.5007, lon: -0.1246, label: None, source: "manual".into() }).unwrap();
+    let step = e.conditions_refresh(NOW).unwrap();
+    assert_eq!(step.requests.len(), 1, "only terrain, weather is off");
+    let id = step.requests[0].id;
+    let step = e.conditions_response(
+        HttpResponseFfi {
+            id,
+            status: 200,
+            body: fx_epqs("london_outside.txt"),
+            etag: None,
+            max_age_s: None,
+            retry_after_s: None,
+            error: None,
+            unit_random: 0.5,
+        },
+        NOW + 27_000,
+    );
+    assert!(step.done);
+    let v = e.conditions_view(NOW + 27_000);
+    assert!(v.issues.iter().any(|i| i.contains("does not cover this place")), "{:?}", v.issues);
+    e.set_terrain_enabled(false).unwrap();
+    assert!(e.conditions_refresh(NOW).is_err(), "both lookups off");
+}

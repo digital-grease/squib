@@ -34,10 +34,13 @@ pub enum Field {
     ElevationMsl,
     /// Height above the WGS84 ellipsoid, m. Not comparable with MSL without a geoid model.
     ElevationEllipsoid,
+    /// Ground surface height from a terrain dataset at the place, m (datum per
+    /// candidate). Terrain is not handset height (docs/squib/05).
+    ElevationTerrain,
 }
 
 impl Field {
-    pub const ALL: [Field; 11] = [
+    pub const ALL: [Field; 12] = [
         Field::Temperature,
         Field::RelativeHumidity,
         Field::WindSpeed,
@@ -49,6 +52,7 @@ impl Field {
         Field::SeaLevelPressure,
         Field::ElevationMsl,
         Field::ElevationEllipsoid,
+        Field::ElevationTerrain,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -64,6 +68,7 @@ impl Field {
             Field::SeaLevelPressure => "sea_level_pressure",
             Field::ElevationMsl => "elevation_msl",
             Field::ElevationEllipsoid => "elevation_ellipsoid",
+            Field::ElevationTerrain => "elevation_terrain",
         }
     }
 
@@ -79,12 +84,12 @@ impl Field {
             Field::WindSpeed | Field::WindGust => "m/s",
             Field::WindDirection => "deg_true_from",
             Field::LocalPressure | Field::RemoteStationPressure | Field::AltimeterSetting | Field::SeaLevelPressure => "Pa",
-            Field::ElevationMsl | Field::ElevationEllipsoid => "m",
+            Field::ElevationMsl | Field::ElevationEllipsoid | Field::ElevationTerrain => "m",
         }
     }
 
     pub fn is_elevation(self) -> bool {
-        matches!(self, Field::ElevationMsl | Field::ElevationEllipsoid)
+        matches!(self, Field::ElevationMsl | Field::ElevationEllipsoid | Field::ElevationTerrain)
     }
 }
 
@@ -121,6 +126,8 @@ pub enum SourceKind {
     StationObservation,
     /// A model estimate at a defined height/terrain (future providers).
     ModelEstimate,
+    /// A terrain (elevation) dataset sampled at the place.
+    TerrainDataset,
     /// Entered by the user.
     Manual,
 }
@@ -132,6 +139,8 @@ pub enum Origin {
     Here,
     NearbyObservation,
     ModelEstimate,
+    /// Ground height from a terrain dataset at the place.
+    Terrain,
     Manual,
     Unavailable,
 }
@@ -142,6 +151,7 @@ impl SourceKind {
             SourceKind::PhoneSensor | SourceKind::ExternalSensor => Origin::Here,
             SourceKind::StationObservation => Origin::NearbyObservation,
             SourceKind::ModelEstimate => Origin::ModelEstimate,
+            SourceKind::TerrainDataset => Origin::Terrain,
             SourceKind::Manual => Origin::Manual,
         }
     }
@@ -159,6 +169,8 @@ pub enum VerticalDatum {
     MslProvider,
     /// Mean sea level stated by the user.
     MslManual,
+    /// North American Vertical Datum of 1988 (orthometric). Compared only with NAVD88.
+    Navd88,
     Unknown,
 }
 
@@ -207,6 +219,10 @@ pub struct MeasurementCandidate {
     /// Transformations applied (e.g. `km_h-1->m_s-1`).
     pub transforms: Vec<String>,
     pub adapter_version: String,
+    /// Dataset the value was sampled from (terrain: raster, resolution, acquisition).
+    /// Omitted when absent so earlier snapshots keep their form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset: Option<String>,
 }
 
 impl MeasurementCandidate {

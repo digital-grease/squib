@@ -321,6 +321,7 @@ fn observation_candidates(r: &Report, fetched: i64, out: &mut Vec<MeasurementCan
         accuracy_meaning: None,
         transforms: vec![],
         adapter_version: ADAPTER_VERSION.into(),
+        dataset: None,
     };
     // Values that are explicit states rather than conversions are collected separately.
     let mut states: Vec<MeasurementCandidate> = Vec::new();
@@ -418,7 +419,7 @@ impl MetarRefresh {
             retries: 0,
             done: false,
         };
-        let req = HttpRequest { id: r.request_id, url: search_url(lookup), if_none_match: etag, delay_ms: 0 };
+        let req = HttpRequest { id: r.request_id, url: search_url(lookup), if_none_match: etag, delay_ms: 0, timeout_ms: 0 };
         Some((r, Step::Fetch(vec![req])))
     }
 
@@ -454,6 +455,7 @@ impl MetarRefresh {
                 url: search_url(self.lookup),
                 if_none_match: self.etag.clone(),
                 delay_ms: delay,
+                timeout_ms: 0,
             }]);
         }
         self.done = true;

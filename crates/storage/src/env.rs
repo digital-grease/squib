@@ -25,6 +25,11 @@ pub const SETTING_UNITS: &str = "display_units";
 /// Last chosen place, stored only for user-entered or saved places, or for GPS places
 /// when precise retention is on.
 pub const SETTING_LAST_PLACE: &str = "last_place";
+/// Opt-in terrain lookup (USGS EPQS), which sends the place to about 10 m.
+pub const SETTING_TERRAIN_ENABLED: &str = "terrain_lookup_enabled";
+/// The place to about 10 m for terrain lookups, kept only while terrain lookup is on and
+/// under the same rule as `last_place`.
+pub const SETTING_TERRAIN_POINT: &str = "terrain_point";
 
 impl Repository {
     /// Store a snapshot with the retention policy applied before it reaches disk.

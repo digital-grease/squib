@@ -23,6 +23,7 @@ fn base(field: Field, provider: &str, observed: Option<i64>, fetched: i64, sourc
         accuracy_meaning: None,
         transforms: vec![],
         adapter_version: LOCAL_ADAPTER_VERSION.into(),
+        dataset: None,
     }
 }
 

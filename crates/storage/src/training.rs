@@ -446,7 +446,7 @@ impl Repository {
                 tx.execute(&format!("DELETE FROM {t}"), [])?;
             }
             // Starter drills are seeded again on next launch.
-            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'starter_drills_seeded', 'active_equipment')", [])?;
+            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'terrain_point', 'starter_drills_seeded', 'active_equipment')", [])?;
             Ok(())
         })
     }

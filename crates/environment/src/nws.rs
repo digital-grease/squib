@@ -94,6 +94,10 @@ pub enum ProviderIssue {
     DeadlineExceeded,
     /// No station reported near the place recently (METAR search came back empty).
     NoStationsNearby,
+    /// The terrain service does not cover this place (outside the US datasets).
+    TerrainNotCovered,
+    /// The terrain service covers the area but has no ground height here (open water).
+    TerrainNoData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -236,6 +240,7 @@ pub fn parse_observation(
             accuracy_meaning: None,
             transforms: vec![],
             adapter_version: ADAPTER_VERSION.into(),
+            dataset: None,
         };
         let Some(raw) = raw else {
             out.push(base);
@@ -294,6 +299,8 @@ pub struct HttpRequest {
     pub if_none_match: Option<String>,
     /// Wait this long before sending (a scheduled retry); 0 for a first try.
     pub delay_ms: u32,
+    /// Per-request read timeout; 0 uses the transport's default.
+    pub timeout_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -436,7 +443,7 @@ impl NwsRefresh {
         let id = self.next_id;
         self.next_id += 1;
         self.outstanding.push(Outstanding { id, url: url.clone(), station, etag: etag.clone(), attempt });
-        HttpRequest { id, url, if_none_match: etag, delay_ms }
+        HttpRequest { id, url, if_none_match: etag, delay_ms, timeout_ms: 0 }
     }
 
     fn after_points(&mut self, info: PointInfo, now: i64, cache: &dyn DocCache) -> Step {

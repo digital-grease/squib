@@ -66,7 +66,7 @@ pub fn to_si(field: Field, value: f64, unit: &str) -> Result<(f64, Option<String
             _ if is_known(u) => return Err(wrong()),
             _ => return Err(UnitError::UnknownUnit(unit.into())),
         },
-        Field::ElevationMsl | Field::ElevationEllipsoid => match u {
+        Field::ElevationMsl | Field::ElevationEllipsoid | Field::ElevationTerrain => match u {
             "m" => (value, None),
             "ft" => (value * 0.3048, t("m")),
             _ if is_known(u) => return Err(wrong()),
@@ -127,7 +127,7 @@ pub fn plausibility(field: Field, si: f64) -> Plausibility {
         // Everest summit is about 33 kPa; extreme storms near 87 kPa at sea level.
         Field::LocalPressure | Field::RemoteStationPressure => ((25_000.0, 110_000.0), (50_000.0, 108_500.0)),
         Field::AltimeterSetting | Field::SeaLevelPressure => ((85_000.0, 110_000.0), (91_000.0, 108_500.0)),
-        Field::ElevationMsl | Field::ElevationEllipsoid => ((-500.0, 9_000.0), (-450.0, 6_000.0)),
+        Field::ElevationMsl | Field::ElevationEllipsoid | Field::ElevationTerrain => ((-500.0, 9_000.0), (-450.0, 6_000.0)),
     };
     if !si.is_finite() || si < hard.0 || si > hard.1 {
         Plausibility::Invalid

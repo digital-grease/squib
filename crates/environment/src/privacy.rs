@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::candidate::{Field, MeasurementCandidate};
+use crate::candidate::MeasurementCandidate;
 use crate::nws::ProviderIssue;
 use crate::resolver::{EnvironmentSnapshot, Reason};
 
@@ -50,7 +50,7 @@ pub fn redact(s: &EnvironmentSnapshot) -> EnvironmentSnapshot {
     r.redacted = true;
     r.elevation_comparisons.clear();
     for f in &mut r.fields {
-        if matches!(f.field, Field::ElevationMsl | Field::ElevationEllipsoid) && f.chosen.is_some() {
+        if f.field.is_elevation() && f.chosen.is_some() {
             f.chosen = None;
             f.alternatives.clear();
             f.reasons.push(Reason::PreciseProvenanceNotRetained);

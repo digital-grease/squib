@@ -95,6 +95,7 @@ fn station_snapshot(id: &str) -> squib_environment::EnvironmentSnapshot {
         accuracy_meaning: None,
         transforms: vec![],
         adapter_version: "nws-adapter-v1".into(),
+        dataset: None,
     };
     let mut c = vec![t];
     c.push(local::barometer(835.0, 2_000).unwrap());

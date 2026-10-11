@@ -1,0 +1,1 @@
+Call failed.  [Failed cloud operation: Open, Path: /vsimem/_00000042.aux.xml]
