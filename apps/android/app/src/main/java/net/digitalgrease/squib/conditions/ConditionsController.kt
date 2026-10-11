@@ -68,13 +68,14 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun act(label: String?, f: suspend () -> Unit) {
+    private fun act(label: String?, quiet: Boolean = false, f: suspend () -> Unit) {
         viewModelScope.launch(worker) {
             _busy.value = label
             try {
                 f()
             } catch (e: SquibException) {
-                _message.value = e.message
+                // Automatic refreshes never interrupt with a dialog; issues show in the status line.
+                if (!quiet) _message.value = e.message
             } finally {
                 _busy.value = null
                 _view.value = engine.conditionsView(System.currentTimeMillis())
@@ -139,8 +140,26 @@ class ConditionsController(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /** Time of the last automatic refresh attempt (read by tests). */
+    @Volatile var lastAutoAttemptUtcMs: Long? = null
+        private set
+
+    /**
+     * Opportunistic refresh (plan phase 3.2, doc 05): called while the Timer or Conditions
+     * screen is in front; refreshes only when [RefreshPolicy] says one is due.
+     */
+    fun refreshIfDue(runActive: Boolean) {
+        val v = _view.value ?: return
+        val now = System.currentTimeMillis()
+        val due = RefreshPolicy.due(now, v.lastRefreshUtcMs, lastAutoAttemptUtcMs, v.weatherEnabled, v.place != null,
+            refreshing = _busy.value != null, runActive = runActive)
+        if (!due) return
+        lastAutoAttemptUtcMs = now
+        refresh(quiet = true)
+    }
+
     /** Runs the core's bounded refresh plan to completion. */
-    fun refresh() = act("Updating weather…") {
+    fun refresh(quiet: Boolean = false) = act("Updating weather…", quiet) {
         var step = engine.conditionsRefresh(System.currentTimeMillis())
         var pending: List<HttpRequestFfi> = step.requests
         while (!step.done) {

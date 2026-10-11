@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -198,6 +199,18 @@ class MainActivity : ComponentActivity() {
                 }
                 val locDenied by locationDenied
                 val denied by deniedMessage
+                // Opportunistic conditions refresh while the Timer or Conditions is in front and
+                // the app is started; checks each minute, refreshes when due (plan phase 3.2).
+                val conditionsInFront = reviewRun == null && tab in setOf("timer", "conditions")
+                LaunchedEffect(conditionsInFront) {
+                    if (!conditionsInFront) return@LaunchedEffect
+                    lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                        while (true) {
+                            conditions.refreshIfDue(runActive = controller.view.value.active)
+                            kotlinx.coroutines.delay(60_000)
+                        }
+                    }
+                }
                 val walk by walkthrough.state.collectAsState()
                 Scaffold(
                     topBar = {
