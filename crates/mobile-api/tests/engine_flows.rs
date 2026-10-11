@@ -59,6 +59,8 @@ struct Sim {
     diag_root: Option<String>,
     auto_stop_count: Option<u32>,
     cue_channel: CueChannel,
+    /// Keep every view (most tests inspect them); long runs turn this off.
+    record_views: bool,
 }
 
 impl Sim {
@@ -83,6 +85,7 @@ impl Sim {
             diag_root: None,
             auto_stop_count: None,
             cue_channel: CueChannel::Sound,
+            record_views: true,
         }
     }
 
@@ -174,6 +177,9 @@ impl Sim {
         let mut last = None;
         for _ in 0..blocks {
             if self.handle != 0 {
+                // Sounds that have finished playing are no longer needed.
+                let frame = self.frame;
+                self.inject.retain(|(start, sig)| start + sig.len() as i64 > frame);
                 let mut buf = vec![0f32; BLOCK];
                 for x in buf.iter_mut() {
                     *x = (self.rng.gaussian() * 0.0018) as f32; // ≈ −55 dBFS
@@ -206,7 +212,9 @@ impl Sim {
             let v = self.eng.poll(self.now());
             self.handle_effects(&v.effects.clone());
             last = Some(v.clone());
-            self.views.push(v);
+            if self.record_views {
+                self.views.push(v);
+            }
         }
         last.unwrap_or_else(|| self.eng.poll(self.now()))
     }
@@ -848,4 +856,67 @@ fn live_run_stops_itself_after_the_target_accepted_shot_count() {
     let accepted: Vec<i64> = r.events.iter().filter(|e| e.state == "accepted").map(|e| e.timeline_ns / 1_000_000).collect();
     assert_eq!(accepted.len(), 4, "the shot inside the grace counts; the late one is after the stop: {accepted:?}");
     assert!(accepted.iter().all(|t| *t < 2_500));
+}
+
+/// Plan phase 2.5, doc 09 capture-duration gate ("continuous 30-minute active-session test
+/// without silent discontinuity"), as a desktop simulation through the real engine: data
+/// plane, DSP worker, run machine, batched storage. A shot every 10 s must all be accepted,
+/// every pushed frame processed, no queue overflow, no interruption, and the run must save
+/// complete. Returns a one-line summary for the report.
+fn endurance(minutes: i64) -> String {
+    let started = std::time::Instant::now();
+    let mut s = Sim::new(&format!("endurance-{minutes}"));
+    s.record_views = false;
+    let shots = (minutes * 6) as usize;
+    s.shot_offsets_ms = (0..shots).map(|i| 2_000.0 + 10_000.0 * i as f64).collect();
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    s.record_views = true;
+    s.settle("running");
+    s.record_views = false;
+    let mut durable = 0;
+    for m in 0..minutes {
+        let v = s.run_ms(60_000);
+        assert_eq!(v.phase, "running", "minute {m}: {:?} {:?}", v.interrupt_reason, v.quality_labels);
+        assert!(v.interrupt_reason.is_none());
+        assert!(v.durable_seq > durable, "minute {m}: observations keep being saved during the run");
+        durable = v.durable_seq;
+    }
+    let d = s.eng.capture_diagnostics().expect("capture open");
+    assert_eq!(d.queue_overflows, 0);
+    assert!(d.processed_frames >= s.frame - BLOCK as i64, "processed {} of {} frames", d.processed_frames, s.frame);
+    s.eng.stop("stop".into(), s.now()).unwrap();
+    s.record_views = true;
+    let v = s.settle("saved");
+    assert_eq!(v.outcome.as_deref(), Some("complete"));
+    assert_eq!(v.accepted_count as usize, shots, "every shot accepted, none invented");
+    let run = s.eng.list_runs(1).unwrap().remove(0);
+    assert_eq!(s.eng.load_review(run.run_id).unwrap().count, shots as u32);
+    // The journal and its write-ahead log together.
+    let path = db_path_existing(&format!("endurance-{minutes}"));
+    let db: u64 = ["", "-wal"].iter().map(|x| std::fs::metadata(format!("{path}{x}")).map(|m| m.len()).unwrap_or(0)).sum();
+    format!(
+        "{minutes} simulated min: {shots}/{shots} shots, {} blocks, DSP p50 {} us p99 {} us max {} us, queue high water {}/{}, \
+         0 overflows, timestamps {}, journal {} KB, wall {:.1} s",
+        d.blocks,
+        d.dsp_p50_ns / 1000,
+        d.dsp_p99_ns / 1000,
+        d.dsp_max_ns / 1000,
+        d.queue_high_water_blocks,
+        d.queue_capacity_blocks,
+        d.timestamp_quality,
+        db / 1024,
+        started.elapsed().as_secs_f64()
+    )
+}
+
+#[test]
+fn capture_runs_continuously_for_two_simulated_minutes() {
+    eprintln!("{}", endurance(2));
+}
+
+#[test]
+#[ignore = "30 simulated minutes: cargo test --release -p squib-mobile --test engine_flows -- --ignored"]
+fn capture_runs_continuously_for_thirty_simulated_minutes() {
+    let minutes = std::env::var("SQUIB_ENDURANCE_MINUTES").ok().and_then(|m| m.parse().ok()).unwrap_or(30);
+    eprintln!("{}", endurance(minutes));
 }
