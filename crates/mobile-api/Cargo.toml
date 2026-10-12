@@ -26,6 +26,8 @@ crossbeam-queue.workspace = true
 uuid.workspace = true
 uniffi.workspace = true
 jni-sys.workspace = true
+qrcodegen.workspace = true
+rqrr.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true

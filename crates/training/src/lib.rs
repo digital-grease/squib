@@ -9,5 +9,6 @@ pub mod aggregate;
 pub mod analytics;
 pub mod drill;
 pub mod manual;
+pub mod qr;
 pub mod rounds;
 pub mod scoring;
