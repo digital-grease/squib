@@ -5,6 +5,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -384,12 +385,27 @@ private fun PhotosAndShare(
     var photos by remember { mutableStateOf<List<net.digitalgrease.squib.core.AttachmentView>>(emptyList()) }
     var preview by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var annotating by remember { mutableStateOf<net.digitalgrease.squib.core.AttachmentView?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(runId) { photos = d.attachments(runId) }
+    annotating?.let { p ->
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { annotating = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+                PhotoAnnotate(d, p, onClose = { annotating = null })
+            }
+        }
+    }
     Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Photos and sharing", fontWeight = FontWeight.Bold)
             Text("${photos.size} target photo(s). Photos are copied into the app with location and camera metadata removed.", style = MaterialTheme.typography.bodySmall)
+            if (photos.isNotEmpty()) {
+                Text("Tap a photo to mark hits, misses, and notes.", style = MaterialTheme.typography.bodySmall)
+                PhotoThumbs(d, photos) { annotating = it }
+            }
             FlowRow {
                 OutlinedButton(onClick = onAddPhoto, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) { Text("Add photo") }
                 OutlinedButton(onClick = { scope.launch { preview = d.shareJson(listOf(runId)) } }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) {

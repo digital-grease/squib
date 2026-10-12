@@ -129,6 +129,26 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     suspend fun previewDrillQr(text: String): Result<DrillView> =
         withContext(worker) { runCatching { engine.previewDrillQr(text, System.currentTimeMillis()) } }
 
+    /** Latest marks on a photo (plan phase 4.2). */
+    suspend fun photoAnnotation(attachmentId: String): Result<net.digitalgrease.squib.core.PhotoAnnotationView> =
+        withContext(worker) { runCatching { engine.photoAnnotation(attachmentId) } }
+
+    /** Save marks as a new version; fails instead of overwriting if someone saved since [base]. */
+    suspend fun savePhotoAnnotation(
+        attachmentId: String,
+        base: UInt?,
+        marks: List<net.digitalgrease.squib.core.MarkView>,
+        note: String,
+    ): Result<net.digitalgrease.squib.core.PhotoAnnotationView> =
+        withContext(worker) { runCatching { engine.savePhotoAnnotation(attachmentId, base, marks, note, System.currentTimeMillis()) } }
+
+    /** Photo file for an attachment, inside the app's attachment folder only. */
+    fun attachmentFile(relativePath: String): File? {
+        val root = attachmentRoot.canonicalFile
+        val f = File(root, relativePath).canonicalFile
+        return f.takeIf { it.path.startsWith(root.path + File.separator) && it.isFile }
+    }
+
     /** Save a scanned drill (validated data only); [done] gets the new drill, or null. */
     fun importDrillQr(text: String, done: (DrillView?) -> Unit) {
         viewModelScope.launch(worker) {
