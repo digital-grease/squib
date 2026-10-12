@@ -920,3 +920,44 @@ fn capture_runs_continuously_for_thirty_simulated_minutes() {
     let minutes = std::env::var("SQUIB_ENDURANCE_MINUTES").ok().and_then(|m| m.parse().ok()).unwrap_or(30);
     eprintln!("{}", endurance(minutes));
 }
+
+#[test]
+fn compatibility_report_summarises_live_routes_without_identifiers() {
+    let mut s = Sim::new("compat");
+    let input = |comment: &str| CompatInput {
+        device: "Google Pixel 8".into(),
+        android_version: "15 (API 35)".into(),
+        app_version: "0.1+1".into(),
+        placement: "On a bench or table".into(),
+        environment: "Outdoor open range".into(),
+        verdict: "Works with corrections".into(),
+        comment: comment.into(),
+        today_utc_ms: 1_791_694_800_000,
+    };
+    let empty = s.eng.compatibility_report(input(""));
+    assert_eq!(empty.live_runs, 0);
+    assert!(empty.text.contains("No live runs yet"));
+
+    s.shot_offsets_ms = vec![700.0, 1000.0, 1350.0];
+    s.arm(Mode::PhoneLive, StartDelay::Fixed { ms: 900 }, vec![], Some(3));
+    s.settle("running");
+    s.run_ms(2000);
+    s.eng.stop("stop".into(), s.now()).unwrap();
+    s.settle("saved");
+    let r = s.eng.compatibility_report(input("Bay 4, \u{7}loud neighbours"));
+    assert_eq!((r.live_runs, r.routes), (1, 1));
+    let t = &r.text;
+    assert!(t.contains("Date: 2026-10-11"), "{t}");
+    assert!(t.contains("Device: Google Pixel 8") && t.contains("Placement: On a bench or table"));
+    assert!(t.contains("Input builtin_mic"), "{t}");
+    assert!(t.contains("Live runs 1 | complete 1 | start cue heard 1 | reviewed with edits 0 | accepted shots 3"), "{t}");
+    assert!(t.contains("Clock: [verified_sample_clock x1]"), "{t}");
+    assert!(t.contains("Sensitivity setup: none saved"), "{t}");
+    assert!(t.contains("Comment: Bay 4, loud neighbours"), "control characters are dropped: {t}");
+    // No identifiers or times beyond the date.
+    let run = s.eng.list_runs(1).unwrap().remove(0);
+    assert!(!t.contains(&run.run_id) && !t.contains(&run.session_id), "{t}");
+    assert!(!t.contains("T0") && !t.contains(":00Z"), "no timestamps: {t}");
+    let long = s.eng.compatibility_report(input(&"x".repeat(2_000)));
+    assert!(long.text.lines().find(|l| l.starts_with("Comment: ")).unwrap().len() <= "Comment: ".len() + 500);
+}

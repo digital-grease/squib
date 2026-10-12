@@ -7,6 +7,7 @@
 //!   against the JNI path (M0 task 6); the app does not use it.
 
 pub mod annotations_api;
+pub mod compat_api;
 pub mod conditions;
 pub mod diag;
 pub mod diagnostic_api;
@@ -26,6 +27,7 @@ pub mod training_api;
 pub mod video_api;
 
 pub use annotations_api::*;
+pub use compat_api::*;
 pub use conditions::*;
 pub use diagnostic_api::*;
 pub use engine::SquibEngine;
