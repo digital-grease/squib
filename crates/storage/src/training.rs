@@ -363,6 +363,7 @@ impl Repository {
                 "plan_run",
                 "video_clip",
                 "diagnostic_recording",
+                "photo_annotation",
                 "attachment",
                 "round_count",
                 "manual_string",

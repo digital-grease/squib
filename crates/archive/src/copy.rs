@@ -35,6 +35,7 @@ const ALWAYS: &[(&str, &str)] = &[
     ("capture_epoch", "id"),
     ("environment_snapshot", "id"),
     ("attachment", "id"),
+    ("photo_annotation", "id"),
     ("day_plan", "id"),
     ("plan_item", "id"),
     ("saved_place", "id"),

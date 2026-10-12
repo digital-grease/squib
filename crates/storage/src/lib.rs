@@ -11,6 +11,7 @@
 //! - Unfinished runs recover as interrupted with `uncommitted_tail_possible`.
 //! - Raw PCM is never stored; only the coarse energy envelope.
 
+mod annotations;
 mod diagnostic;
 mod env;
 mod equipment;
@@ -21,6 +22,7 @@ mod sessions;
 mod training;
 mod video;
 
+pub use annotations::*;
 pub use diagnostic::*;
 pub use env::*;
 pub use equipment::*;
@@ -33,7 +35,7 @@ pub use video::*;
 
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 pub const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
@@ -46,6 +48,7 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (8, include_str!("migrations/0008_equipment.sql")),
     (9, include_str!("migrations/0009_import_provenance.sql")),
     (10, include_str!("migrations/0010_cue_channels.sql")),
+    (11, include_str!("migrations/0011_photo_annotations.sql")),
 ];
 
 /// Migrations that rebuild a table other tables reference. They run with foreign keys

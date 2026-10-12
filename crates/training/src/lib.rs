@@ -7,6 +7,7 @@
 
 pub mod aggregate;
 pub mod analytics;
+pub mod annotation;
 pub mod drill;
 pub mod manual;
 pub mod qr;
