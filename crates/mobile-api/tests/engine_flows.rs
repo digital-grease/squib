@@ -961,3 +961,30 @@ fn compatibility_report_summarises_live_routes_without_identifiers() {
     let long = s.eng.compatibility_report(input(&"x".repeat(2_000)));
     assert!(long.text.lines().find(|l| l.starts_with("Comment: ")).unwrap().len() <= "Comment: ".len() + 500);
 }
+
+/// Security review 5.1: a caller-provided attachment path is checked before any file is
+/// read or hashed, so `../` cannot reach files outside the attachment root even briefly.
+#[test]
+fn attachment_paths_are_validated_before_the_file_is_touched() {
+    let s = Sim::new("paths");
+    let base = std::env::temp_dir().join(format!("squib-paths-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("attachments");
+    std::fs::create_dir_all(&root).unwrap();
+    // A readable file outside the root: before the fix it was read (or hashed) first and only
+    // the database insert refused the path.
+    std::fs::write(base.join("secret.txt"), b"outside").unwrap();
+    let run = s.eng.add_manual_run("Club timer".into(), 10, "1.0".into(), None, None, 1_700_000_000_000, 0, "t".into()).unwrap();
+    let root_s = root.to_string_lossy().to_string();
+    for bad in ["../secret.txt", "/etc/hostname", "photos/../../secret.txt", "a\\b.jpg"] {
+        match s.eng.register_attachment(run.clone(), root_s.clone(), bad.into(), "image/jpeg".into(), true, 1) {
+            Err(SquibError::Invalid(m)) => assert!(m.contains("app-relative"), "{bad}: {m}"),
+            other => panic!("{bad}: {other:?}"),
+        }
+        match s.eng.register_video(run.clone(), root_s.clone(), bad.into(), clip_meta(1, 1), 1) {
+            Err(SquibError::Invalid(m)) => assert!(m.contains("app-relative"), "{bad}: {m}"),
+            other => panic!("{bad}: {other:?}"),
+        }
+    }
+    assert!(s.eng.run_attachments(run).is_empty());
+}

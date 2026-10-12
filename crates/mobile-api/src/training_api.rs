@@ -664,6 +664,10 @@ impl SquibEngine {
         metadata_stripped: bool,
         now_utc_ms: i64,
     ) -> Result<AttachmentView, SquibError> {
+        // Validate before touching the file system, not only when the row is stored.
+        if !squib_storage::valid_attachment_path(&relative_path) {
+            return Err(inval("attachment path must be app-relative"));
+        }
         let bytes = std::fs::read(Path::new(&attachment_root).join(&relative_path)).map_err(inval)?;
         let rec = AttachmentRecord {
             id: uuid::Uuid::new_v4().to_string(),

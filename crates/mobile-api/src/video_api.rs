@@ -203,6 +203,10 @@ impl SquibEngine {
         if !(0..=MAX_CLIP_MS + 5_000).contains(&meta.duration_ms) {
             return Err(inval("clip is longer than the recording limit"));
         }
+        // Validate before touching the file system, not only when the row is stored.
+        if !squib_storage::valid_attachment_path(&relative_path) {
+            return Err(inval("attachment path must be app-relative"));
+        }
         let (sha256, bytes) =
             squib_domain::hash::sha256_file(&Path::new(&attachment_root).join(&relative_path)).map_err(inval)?;
         let rec = VideoClipRecord {
