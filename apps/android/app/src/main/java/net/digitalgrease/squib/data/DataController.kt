@@ -428,6 +428,27 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         IssueReport.build(device, android, version, engine.diagnosticReport(device, android, version))
     }
 
+    /** Compatibility report text for the user to preview (plan phase 4.3). */
+    suspend fun compatibilityReport(placement: String, environment: String, verdict: String, comment: String): String =
+        withContext(worker) {
+            engine.compatibilityReport(
+                net.digitalgrease.squib.core.CompatInput(
+                    IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL),
+                    "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                    "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+                    placement, environment, verdict, comment, System.currentTimeMillis(),
+                ),
+            ).text
+        }
+
+    /** Pre-filled GitHub compatibility form for a previewed report. */
+    fun compatibilityIssue(report: String): IssueReport.Result = IssueReport.buildCompatibility(
+        IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL),
+        "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+        "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+        report,
+    )
+
     suspend fun reportText(): String = withContext(worker) {
         val device = IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL)
         engine.diagnosticReport(device, "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", BuildConfig.VERSION_NAME)

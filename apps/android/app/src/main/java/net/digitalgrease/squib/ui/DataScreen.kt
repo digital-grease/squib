@@ -41,6 +41,8 @@ fun DataScreen(
     onImport: () -> Unit,
     onExportCsv: () -> Unit,
     onReportProblem: () -> Unit,
+    onOpenCompatibility: (String) -> Unit,
+    onCopyText: (String) -> Unit,
 ) {
     val rounds by d.rounds.collectAsState()
     val pending by d.pendingImport.collectAsState()
@@ -101,6 +103,7 @@ fun DataScreen(
                 OutlinedButton(onClick = onReportProblem, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Report a problem on GitHub") }
             }
         }
+        CompatReportCard(d, onOpenCompatibility, onCopyText)
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
             Column(Modifier.padding(12.dp)) {
                 Text("Delete all history", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)

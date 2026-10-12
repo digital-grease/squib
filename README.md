@@ -56,6 +56,7 @@ Squib is an early prototype and is not yet available in any app store.
 - History stays on your phone and is not included in Android's automatic backups. To move it, save a private backup file and restore it on the new phone. Backup files are not encrypted, so store them somewhere you trust.
 - Sharing a result leaves out your location, station names, notes, photos, videos, and identifiers. Plan and stage notes are never shared.
 - "Report a problem" opens a pre-filled GitHub issue in your browser for you to review and submit. It includes app versions, device model, and timing diagnostics, never audio, location, or notes.
+- "Share a compatibility report" (in Data and backup) helps build the list of phones and audio routes that time shots well. You choose where the phone was, where you were shooting, and how well it worked, and see the exact text first. It summarises your recent live runs by audio route (counts, clock quality, sensitivity setup) with the device model, versions, and the date, never audio, location, notes, run identifiers, or times. You can open it as a pre-filled GitHub issue to review and submit, or copy it.
 
 ## Planned
 

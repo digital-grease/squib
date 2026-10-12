@@ -135,6 +135,21 @@ class MainActivity : ComponentActivity() {
             .setPrimaryClip(android.content.ClipData.newPlainText(label, text))
     }
 
+    /** Opens the pre-filled compatibility form for a report the user has previewed (plan 4.3). */
+    private fun openCompatibilityForm(report: String) {
+        val r = data.compatibilityIssue(report)
+        if (r is IssueReport.Result.Truncated) copy("Squib compatibility report", r.fullReport)
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(r.url)))
+            if (r is IssueReport.Result.Truncated) {
+                android.widget.Toast.makeText(this, "Report was long: the full text is on your clipboard to paste.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        } catch (e: android.content.ActivityNotFoundException) {
+            copy("Squib compatibility report", report)
+            android.widget.Toast.makeText(this, "No browser found. The report was copied to your clipboard.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** Opens the pre-filled GitHub issue form; the user submits it. Clipboard is the fallback. */
     private fun reportProblem() {
         lifecycleScope.launch {
@@ -269,6 +284,11 @@ class MainActivity : ComponentActivity() {
                                 onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
                                 onExportCsv = { createCsv.launch("squib-runs.csv") },
                                 onReportProblem = ::reportProblem,
+                                onOpenCompatibility = ::openCompatibilityForm,
+                                onCopyText = { text ->
+                                    copy("Squib compatibility report", text)
+                                    android.widget.Toast.makeText(this@MainActivity, "Report copied.", android.widget.Toast.LENGTH_SHORT).show()
+                                },
                             )
                             tab == "practice" -> PracticeScreen(
                                 data,

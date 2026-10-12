@@ -23,6 +23,14 @@ class IssueReportTest {
     }
 
     @Test
+    fun compatibilityReportsUseTheirOwnFormAndField() {
+        val r = IssueReport.buildCompatibility("Pixel 8", "15 (API 35)", "0.1.0", "Route 1: builtin_mic")
+        assertTrue(r.url.startsWith("https://github.com/digital-grease/squib/issues/new?template=compatibility_report.yml&"))
+        assertTrue(r.url.contains("&report=Route%201%3A%20builtin_mic"))
+        assertTrue("not the bug form's field", !r.url.contains("diagnostics="))
+    }
+
+    @Test
     fun longReportsAreTruncatedWithinTheLimitAndKeptWhole() {
         val long = "x".repeat(20_000)
         val r = IssueReport.build("Pixel 8", "15", "0.1.0", long)

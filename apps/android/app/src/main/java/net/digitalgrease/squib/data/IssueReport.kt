@@ -9,7 +9,12 @@ import java.net.URLEncoder
  * Pure Kotlin so it can be unit tested without Android.
  */
 object IssueReport {
-    private const val BASE = "https://github.com/digital-grease/squib/issues/new?template=bug_report.yml"
+    private const val NEW_ISSUE = "https://github.com/digital-grease/squib/issues/new?template="
+    private const val BASE = NEW_ISSUE + "bug_report.yml"
+
+    /** The compatibility form (`.github/ISSUE_TEMPLATE/compatibility_report.yml`, plan 4.3). */
+    fun buildCompatibility(device: String, androidVersion: String, appVersion: String, report: String, maxUrlLength: Int = MAX_URL_LENGTH): Result =
+        build(device, androidVersion, appVersion, report, maxUrlLength, base = NEW_ISSUE + "compatibility_report.yml", field = "report")
 
     /** GitHub starts failing on very long query strings; stay well below. */
     const val MAX_URL_LENGTH = 7000
@@ -34,8 +39,16 @@ object IssueReport {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
-    fun build(device: String, androidVersion: String, appVersion: String, report: String, maxUrlLength: Int = MAX_URL_LENGTH): Result {
-        val head = "$BASE&device=${enc(device)}&android_version=${enc(androidVersion)}&app_version=${enc(appVersion)}&diagnostics="
+    fun build(
+        device: String,
+        androidVersion: String,
+        appVersion: String,
+        report: String,
+        maxUrlLength: Int = MAX_URL_LENGTH,
+        base: String = BASE,
+        field: String = "diagnostics",
+    ): Result {
+        val head = "$base&device=${enc(device)}&android_version=${enc(androidVersion)}&app_version=${enc(appVersion)}&$field="
         val full = enc(report)
         if (head.length + full.length <= maxUrlLength) return Result.Embedded(head + full)
         // Shrink the embedded part until it fits, keeping the start of the report.

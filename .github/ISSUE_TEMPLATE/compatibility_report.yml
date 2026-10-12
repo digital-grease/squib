@@ -1,0 +1,35 @@
+name: Compatibility report
+description: How Squib's shot timing works on your phone and audio route.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping build the compatibility table. If you opened this from the app, the report below was filled in for you and you saw it before sharing. It contains the device model, Android version, app and detector versions, audio route categories, your placement, environment and verdict, the date, and counts from your recent live runs. It does not contain audio, location, notes, run identifiers, station names, or times other than the date.
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: Google Pixel 8
+  - type: input
+    id: android_version
+    attributes:
+      label: Android version
+      placeholder: 15 (API 35)
+  - type: input
+    id: app_version
+    attributes:
+      label: Squib version
+  - type: textarea
+    id: report
+    attributes:
+      label: Compatibility report
+      description: Filled in by the app. If it says the report was truncated, paste the full report from your clipboard here.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Optional. Please do not include your location or other personal details.
