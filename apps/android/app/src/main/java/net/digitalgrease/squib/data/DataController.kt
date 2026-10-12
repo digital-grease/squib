@@ -120,6 +120,29 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     fun editDrill(id: String, d: DrillInput) = act { engine.editDrill(id, d, System.currentTimeMillis()) }
     fun archiveDrill(id: String) = act { engine.archiveDrill(id) }
     suspend fun drillFile(d: DrillView): ByteArray = withContext(worker) { engine.drillFile(d.drillId, d.version) }
+
+    /** QR code for a drill, or the reason (usually too long: share it as a file). */
+    suspend fun drillQr(d: DrillView): Result<net.digitalgrease.squib.core.QrCodeView> =
+        withContext(worker) { runCatching { engine.drillQr(d.drillId, d.version) } }
+
+    /** What a scanned code would import; nothing is saved. */
+    suspend fun previewDrillQr(text: String): Result<DrillView> =
+        withContext(worker) { runCatching { engine.previewDrillQr(text, System.currentTimeMillis()) } }
+
+    /** Save a scanned drill (validated data only); [done] gets the new drill, or null. */
+    fun importDrillQr(text: String, done: (DrillView?) -> Unit) {
+        viewModelScope.launch(worker) {
+            val v = try {
+                engine.importDrillQr(text, System.currentTimeMillis())
+            } catch (e: SquibException) {
+                _message.value = e.message
+                null
+            }
+            refresh()
+            withContext(kotlinx.coroutines.Dispatchers.Main) { done(v) }
+        }
+    }
+
     fun importDrill(uri: Uri) = act {
         val bytes = app.contentResolver.openInputStream(uri)?.use { s -> s.readNBytesCompat(16 * 1024 + 1) } ?: ByteArray(0)
         engine.importDrillFile(bytes, System.currentTimeMillis())

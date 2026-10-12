@@ -56,14 +56,30 @@ fun PracticeScreen(
     onOpenRun: (String) -> Unit,
     onOpenPlan: (String) -> Unit,
     onTemplate: () -> Unit,
+    onRequestCamera: (then: () -> Unit) -> Unit,
 ) {
     val drills by d.drills.collectAsState()
     var editing by remember { mutableStateOf<DrillView?>(null) }
     var creating by remember { mutableStateOf(false) }
     var manualFor by remember { mutableStateOf<DrillView?>(null) }
     var manualOpen by remember { mutableStateOf(false) }
+    var qrFor by remember { mutableStateOf<Pair<DrillView, Result<net.digitalgrease.squib.core.QrCodeView>>?>(null) }
+    var scanning by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // System Back closes a Practice sub-view (scanner, editor, manual entry) first.
+    androidx.activity.compose.BackHandler(enabled = scanning || creating || editing != null || manualOpen) {
+        scanning = false
+        creating = false
+        editing = null
+        manualOpen = false
+        manualFor = null
+    }
+    if (scanning) {
+        DrillQrScan(d, onClose = { scanning = false }, onImported = { scanning = false })
+        return
+    }
+    qrFor?.let { (dr, qr) -> DrillQrDialog(dr, qr, onDismiss = { qrFor = null }) }
     if (creating || editing != null) {
         DrillEditor(d, editing, onDone = { creating = false; editing = null })
         return
@@ -82,6 +98,9 @@ fun PracticeScreen(
                 Text("Enter a result from another timer")
             }
             OutlinedButton(onClick = onImportDrill, modifier = Modifier.heightIn(min = 48.dp)) { Text("Import drill file") }
+            OutlinedButton(onClick = { onRequestCamera { scanning = true } }, modifier = Modifier.heightIn(min = 48.dp).testTag("scan_drill_qr")) {
+                Text("Scan drill QR")
+            }
         }
         drills.forEach { dr ->
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -109,6 +128,8 @@ fun PracticeScreen(
                         }
                         OutlinedButton(onClick = { editing = dr }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp).spoken("Edit ${dr.input.title}")) { Text("Edit") }
                         TextButton(onClick = { scope.launch { onShareDrill(dr, d.drillFile(dr)) } }, modifier = Modifier.heightIn(min = 48.dp).spoken("Share ${dr.input.title}")) { Text("Share") }
+                        TextButton(onClick = { scope.launch { qrFor = dr to d.drillQr(dr) } },
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("qr_${dr.drillId}").spoken("Show QR code for ${dr.input.title}")) { Text("QR code") }
                         TextButton(onClick = { d.archiveDrill(dr.drillId) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Archive ${dr.input.title}")) { Text("Archive") }
                     }
                 }

@@ -278,6 +278,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenRun = { reviewRun = it },
                                 onOpenPlan = { openPlan = it; tab = "plan" },
                                 onTemplate = { tab = "checklist" },
+                                onRequestCamera = ::withCamera,
                             )
                             tab == "plan" && openPlan != null -> PlanScreen(
                                 data, walkthrough, openPlan!!,
