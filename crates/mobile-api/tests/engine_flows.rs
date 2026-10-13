@@ -61,6 +61,8 @@ struct Sim {
     cue_channel: CueChannel,
     /// Keep every view (most tests inspect them); long runs turn this off.
     record_views: bool,
+    /// The analysis thread was made to panic: do not wait for it to process blocks.
+    dsp_dead: bool,
 }
 
 impl Sim {
@@ -86,6 +88,7 @@ impl Sim {
             auto_stop_count: None,
             cue_channel: CueChannel::Sound,
             record_views: true,
+            dsp_dead: false,
         }
     }
 
@@ -202,7 +205,7 @@ impl Sim {
                     assert!(code == 0 || code == 3, "push code {code}");
                     // After an injected gap the epoch is failed and processing stops by design.
                     let after_gap = self.drop_block_at.is_some_and(|d| self.seq > d);
-                    if code == 0 && !after_gap {
+                    if code == 0 && !after_gap && !self.dsp_dead {
                         self.wait_processed(end);
                     }
                 }
@@ -987,4 +990,114 @@ fn attachment_paths_are_validated_before_the_file_is_touched() {
         }
     }
     assert!(s.eng.run_attachments(run).is_empty());
+}
+
+// ---- Plan 5.3: panic containment and concurrent calls ---------------------------------
+
+fn complete_run(s: &mut Sim, shots: Vec<f64>) -> EngineView {
+    s.utc += 60_000;
+    s.shot_offsets_ms = shots;
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    s.settle("running");
+    s.run_ms(1500);
+    s.eng.stop(format!("stop-{}", s.utc), s.now()).unwrap();
+    s.settle("saved")
+}
+
+#[test]
+fn an_analysis_thread_panic_interrupts_the_run_and_the_next_run_works() {
+    let mut s = Sim::new("dsp-panic");
+    s.shot_offsets_ms = vec![500.0, 900.0];
+    s.arm(Mode::PhoneLive, StartDelay::Instant, vec![], None);
+    s.settle("running");
+    s.eng.debug_inject_panic("dsp".into());
+    s.dsp_dead = true;
+    let v = s.settle("saved");
+    assert_eq!(v.outcome.as_deref(), Some("interrupted"), "never shown as a clean run");
+    assert_eq!(v.interrupt_reason.as_deref(), Some("Audio analysis stopped"));
+    let r = s.eng.load_review(v.run_id.unwrap()).unwrap();
+    assert!(r.quality.iter().any(|q| q.label == "Audio analysis stopped" && q.severity == "integrity"));
+    s.dsp_dead = false;
+    // Shots the simulator queued for the interrupted run never played; drop them.
+    s.inject.clear();
+    let v = complete_run(&mut s, vec![400.0, 800.0]);
+    assert_eq!((v.outcome.as_deref(), v.accepted_count), (Some("complete"), 2), "a fresh worker for the next run");
+}
+
+#[test]
+fn a_panic_in_an_engine_call_leaves_the_engine_usable() {
+    let mut s = Sim::new("call-panic");
+    let eng = s.eng.clone();
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| eng.debug_inject_panic("call".into())));
+    assert!(r.is_err(), "the call panicked (UniFFI turns this into an exception on the platform side)");
+    // The engine lock was poisoned by that panic; later calls recover it.
+    let v = complete_run(&mut s, vec![400.0, 800.0, 1200.0]);
+    assert_eq!((v.outcome.as_deref(), v.accepted_count), (Some("complete"), 3));
+}
+
+#[test]
+fn a_panic_on_the_writer_thread_does_not_stop_later_saves() {
+    let mut s = Sim::new("store-panic");
+    let t = std::time::Instant::now();
+    s.eng.debug_inject_panic("store".into());
+    assert!(t.elapsed() < Duration::from_secs(2), "reported at once");
+    let v = complete_run(&mut s, vec![400.0, 800.0]);
+    assert_eq!((v.outcome.as_deref(), v.persist.as_deref()), (Some("complete"), Some("saved")));
+    let drills = s.eng.list_drills().len();
+    let mut d = s.eng.list_drills().remove(0).input;
+    d.title = "After the panic".into();
+    s.eng.create_drill(d, s.utc).unwrap();
+    assert_eq!(s.eng.list_drills().len(), drills + 1);
+}
+
+/// Several platform threads call the engine at once (UI reads, settings and drill writes,
+/// conditions) while a live run is captured and saved. Nothing deadlocks, every write
+/// lands exactly once, and the runs are timed as if alone.
+#[test]
+fn concurrent_calls_from_several_threads_during_live_runs() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let mut s = Sim::new("threads");
+    let stop = Arc::new(AtomicBool::new(false));
+    let created = Arc::new(AtomicUsize::new(0));
+    let before = s.eng.list_drills().len();
+    let template = s.eng.list_drills().remove(0).input;
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<usize>();
+    for t in 0..6 {
+        let (eng, stop, created, done, mut d) = (s.eng.clone(), stop.clone(), created.clone(), done_tx.clone(), template.clone());
+        std::thread::spawn(move || {
+            let mut calls = 0;
+            while !stop.load(Ordering::Relaxed) {
+                match (t + calls) % 6 {
+                    0 => drop(eng.list_drills()),
+                    1 => drop(eng.list_runs(20)),
+                    2 => drop(eng.conditions_view(1_700_000_000_000)),
+                    3 => {
+                        d.title = format!("Thread {t} drill {calls}");
+                        if eng.create_drill(d.clone(), 1_700_000_000_000).is_ok() {
+                            created.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    4 => {
+                        let _ = eng.add_saved_place(format!("Place {t}-{calls}"), 40.0, -105.0, 1_700_000_000_000);
+                    }
+                    _ => drop(eng.list_sessions(20)),
+                }
+                calls += 1;
+            }
+            let _ = done.send(calls);
+        });
+    }
+    for shots in [vec![400.0, 800.0], vec![300.0, 650.0, 1000.0], vec![500.0]] {
+        let n = shots.len() as u32;
+        let v = complete_run(&mut s, shots);
+        assert_eq!((v.outcome.as_deref(), v.accepted_count), (Some("complete"), n), "{v:?}");
+    }
+    stop.store(true, Ordering::Relaxed);
+    let mut total = 0;
+    for _ in 0..6 {
+        total += done_rx.recv_timeout(Duration::from_secs(30)).expect("a thread is stuck: deadlock");
+    }
+    assert!(total > 60, "threads made progress alongside the runs ({total} calls)");
+    assert_eq!(s.eng.list_drills().len(), before + created.load(Ordering::Relaxed), "each write landed once");
+    assert_eq!(s.eng.list_runs(20).unwrap().len(), 3);
 }
