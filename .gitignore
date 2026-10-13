@@ -2,6 +2,10 @@
 **/build/
 .gradle/
 local.properties
+# Release signing material never enters the repository (ADR-058).
+keystore.properties
+*.jks
+*.keystore
 *.iml
 .idea/
 apps/android/app/src/main/jniLibs/
