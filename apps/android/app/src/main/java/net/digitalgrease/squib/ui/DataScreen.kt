@@ -43,6 +43,7 @@ fun DataScreen(
     onReportProblem: () -> Unit,
     onOpenCompatibility: (String) -> Unit,
     onCopyText: (String) -> Unit,
+    onAbout: () -> Unit,
 ) {
     val rounds by d.rounds.collectAsState()
     val pending by d.pendingImport.collectAsState()
@@ -54,6 +55,9 @@ fun DataScreen(
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
         BackButton("Back", "Back to History", onBack)
         Text("Data and backup", style = MaterialTheme.typography.headlineMedium)
+        OutlinedButton(onClick = onAbout, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 6.dp).testTag("open_about")) {
+            Text("About, licences and support")
+        }
 
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
             Column(Modifier.padding(12.dp)) {

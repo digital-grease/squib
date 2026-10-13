@@ -21,7 +21,14 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
     outputs.dir("src/main/jniLibs")
     outputs.dir("src/main/generated/uniffi")
 }
-tasks.named("preBuild") { dependsOn(buildRustCore) }
+// The About screen shows the full licence offline; it is copied from the repository root so
+// there is one copy to keep current.
+val aboutAssets = layout.buildDirectory.dir("generated/aboutAssets")
+val copyLicense = tasks.register<Copy>("copyLicense") {
+    from(File(repoRoot, "LICENSE")) { rename { "LICENSE.txt" } }
+    into(aboutAssets)
+}
+tasks.named("preBuild") { dependsOn(buildRustCore, copyLicense) }
 
 // Version policy (ADR-058): versionName is MAJOR.MINOR.PATCH and versionCode is derived from
 // it, so each release has a unique, increasing code that does not depend on the build
@@ -74,6 +81,7 @@ android {
 
     sourceSets {
         getByName("main").kotlin.directories += "src/main/generated/uniffi"
+        getByName("main").assets.directories += "build/generated/aboutAssets"
     }
 
     signingConfigs {

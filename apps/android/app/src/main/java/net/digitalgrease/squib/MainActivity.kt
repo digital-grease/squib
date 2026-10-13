@@ -150,6 +150,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Opens a web link in the browser only when the user taps it; without a browser, copies it. */
+    private fun openLink(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        } catch (e: android.content.ActivityNotFoundException) {
+            copy("Squib link", url)
+            android.widget.Toast.makeText(this, "No browser found. The link was copied to your clipboard.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** Opens the pre-filled GitHub issue form; the user submits it. Clipboard is the fallback. */
     private fun reportProblem() {
         lifecycleScope.launch {
@@ -206,6 +216,7 @@ class MainActivity : ComponentActivity() {
                     when {
                         reviewRun != null -> { reviewRun = null; controller.refreshHistory(); data.reload() }
                         tab == "data" -> tab = "history"
+                        tab == "about" -> tab = "data"
                         tab == "plan" -> { openPlan = null; tab = "practice"; data.reload() }
                         tab == "checklist" -> tab = "practice"
                         tab == "history" && openSession != null -> { openSession = null; data.reload() }
@@ -289,7 +300,9 @@ class MainActivity : ComponentActivity() {
                                     copy("Squib compatibility report", text)
                                     android.widget.Toast.makeText(this@MainActivity, "Report copied.", android.widget.Toast.LENGTH_SHORT).show()
                                 },
+                                onAbout = { tab = "about" },
                             )
+                            tab == "about" -> net.digitalgrease.squib.ui.AboutScreen(onBack = { tab = "data" }, onOpenLink = ::openLink)
                             tab == "practice" -> PracticeScreen(
                                 data,
                                 onStartDrill = { d -> controller.startDrill(d); tab = "timer" },
