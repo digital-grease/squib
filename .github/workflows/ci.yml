@@ -35,6 +35,22 @@ jobs:
           cargo build --release --locked -p squib-replay
           ./target/release/squib-replay corpus fixtures/synthetic
 
+  swift:
+    name: Swift bindings and SquibKit against the Linux core
+    runs-on: ubuntu-latest
+    needs: core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: swift
+      - name: Build and test in the pinned Swift container
+        # Checks the generated Swift and the par-timer model with the real core (ADR-065);
+        # the iOS simulator run is the iOS workflow.
+        run: ./scripts/swift-linux-test.sh
+
   android:
     name: Android debug and release builds
     runs-on: ubuntu-latest

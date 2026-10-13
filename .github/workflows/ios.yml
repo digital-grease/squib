@@ -1,0 +1,110 @@
+name: iOS
+
+# Squib on iOS, best effort (plan 7.3, ADR-065): build the Rust core for the iOS
+# simulator, generate the Xcode project, and run SquibKit's tests and the app's UI tests
+# on a simulator. Evidence level simulator only. Unsigned simulator build; nothing is
+# uploaded for distribution (test results only, on failure).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/ios/**"
+      - "crates/**"
+      - "tools/uniffi-bindgen/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/build-ios-core.sh"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "crates/**"
+      - "tools/uniffi-bindgen/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/build-ios-core.sh"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned: the runner image's Xcode 26.6 and its iOS 26.5 simulator runtime.
+  XCODE_APP: /Applications/Xcode_26.6.app
+  SIM_DEVICE: iPhone 17
+  SIM_OS: "26.5"
+  XCODEGEN_VERSION: 2.46.0
+  # SHA-256 of xcodegen.zip as published with the 2.46.0 release.
+  XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+
+jobs:
+  simulator:
+    name: iOS simulator build and tests
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ios
+      - name: Install XcodeGen (pinned release, checksum verified)
+        run: |
+          zip="$RUNNER_TEMP/xcodegen.zip"
+          curl -fsSL -o "$zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $zip" | shasum -a 256 -c -
+          unzip -q "$zip" -d "$RUNNER_TEMP/xcodegen"
+          bin="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm -u+x | head -n 1)"
+          test -n "$bin"
+          dirname "$bin" >> "$GITHUB_PATH"
+          "$bin" --version
+      - name: Build the core for the simulator and generate the Swift bindings
+        run: ./scripts/build-ios-core.sh sim
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: xcodegen generate
+      - name: Test on the simulator (SquibKit and UI tests)
+        working-directory: apps/ios
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Squib.xcodeproj -scheme Squib \
+            -destination "platform=iOS Simulator,name=$SIM_DEVICE,OS=$SIM_OS" \
+            -derivedDataPath DerivedData \
+            -resultBundlePath "$RUNNER_TEMP/Squib.xcresult"
+      - name: Keep the test results when tests fail
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: squib-ios-test-results-${{ github.sha }}
+          path: ${{ runner.temp }}/Squib.xcresult
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "### iOS simulator (best effort)"
+            echo ""
+            echo "- Xcode: $(xcodebuild -version | head -n 1), simulator $SIM_DEVICE, iOS $SIM_OS"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Evidence level: simulator only; no device timing claims"
+            echo "- Signing: ad hoc for the simulator; nothing distributed"
+          } >> "$GITHUB_STEP_SUMMARY"
