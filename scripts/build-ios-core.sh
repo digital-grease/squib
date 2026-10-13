@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the Rust core for iOS and generate the UniFFI Swift bindings (plan 7.1, ADR-065).
 # macOS with Xcode only. Produces, all git-ignored:
-#   apps/ios/Generated/SquibCoreFFI.xcframework   static core + C header + module map
-#   apps/ios/Sources/SquibCore/squib_mobile.swift  Swift bindings
+#   apps/ios/SquibKit/Generated/SquibCoreFFI.xcframework   static core + C header + module map
+#   apps/ios/SquibKit/Sources/SquibCore/squib_mobile.swift  Swift bindings
 # Usage: scripts/build-ios-core.sh [all|sim]
 #   all (default): device (arm64) and simulator (arm64 and x86_64) slices
 #   sim: simulator slices only, for CI and local simulator runs
@@ -13,7 +13,7 @@ if [ "$(uname -s)" != "Darwin" ] || ! command -v xcodebuild > /dev/null; then
   echo "build-ios-core.sh needs macOS with Xcode; on Linux use scripts/swift-linux-test.sh" >&2
   exit 1
 fi
-PKG="$ROOT/apps/ios"
+PKG="$ROOT/apps/ios/SquibKit"
 GEN="$PKG/Generated"
 WORK="$ROOT/target/ios"
 # Matches the app's deployment target (project.yml) and Package.swift's platforms.

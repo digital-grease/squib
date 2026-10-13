@@ -1,0 +1,57 @@
+# Xcode project spec for Squib on iOS (plan 7.2, ADR-065). The project itself is
+# generated, not committed: XcodeGen 2.46.0 (pinned with its checksum in CI).
+#   scripts/build-ios-core.sh sim && cd apps/ios && xcodegen generate
+name: Squib
+options:
+  bundleIdPrefix: net.digitalgrease
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # The generated bindings predate strict Swift 6 concurrency checking.
+    SWIFT_VERSION: "5.0"
+    # Simulator builds only, signed ad hoc; no signing identity or team exists (ADR-058).
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+packages:
+  SquibKit:
+    path: SquibKit
+targets:
+  Squib:
+    type: application
+    platform: iOS
+    sources: [Squib]
+    dependencies:
+      - package: SquibKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.digitalgrease.squib
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: Squib
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
+  SquibUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [SquibUITests]
+    dependencies:
+      - target: Squib
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  Squib:
+    build:
+      targets:
+        Squib: all
+        SquibUITests: [test]
+    test:
+      targets:
+        - package: SquibKit/SquibKitTests
+        - SquibUITests

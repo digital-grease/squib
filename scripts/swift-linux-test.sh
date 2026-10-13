@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # swift:6.3.3-noble (the Swift version nearest the pinned Xcode), by digest.
 IMAGE="swift@sha256:cd45c27b3abc42310c33cfaf3008b18156cbdc9187834c9617e8f43a26d2675c"
-PKG="$ROOT/apps/ios"
+PKG="$ROOT/apps/ios/SquibKit"
 GEN="$PKG/Generated/linux"
 
 cd "$ROOT"
