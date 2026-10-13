@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import net.digitalgrease.squib.core.AirChoice
 import net.digitalgrease.squib.core.CardView
+import net.digitalgrease.squib.core.CoriolisInput
 import net.digitalgrease.squib.core.LoadInput
 import net.digitalgrease.squib.core.LoadView
 import net.digitalgrease.squib.ui.BackButton
@@ -49,7 +50,8 @@ import net.digitalgrease.squib.ui.fmtDate
 
 /**
  * Ballistics calculator (plan 6.4, Experimental). Reached from Conditions. A range card
- * from a saved load, the air (current conditions or entered), wind and shot angle.
+ * from a saved load, the air (current conditions or entered), wind and shot angle, and
+ * optionally spin drift and Coriolis (plan 6.5), both off unless chosen.
  */
 @Composable
 fun BallisticsScreen(c: BallisticsController, us: Boolean, onBack: () -> Unit) {
@@ -121,6 +123,13 @@ private fun MainPage(c: BallisticsController, u: BallisticsUnits, onBack: () -> 
     var to by rememberSaveable { mutableStateOf("1000") }
     var step by rememberSaveable { mutableStateOf("100") }
     var title by rememberSaveable { mutableStateOf("") }
+    var spin by rememberSaveable { mutableStateOf(false) }
+    var coriolis by rememberSaveable { mutableStateOf(false) }
+    var latitude by rememberSaveable { mutableStateOf("") }
+    var bearing by rememberSaveable { mutableStateOf("") }
+    val canSpin = BallisticsController.canSpin(active)
+    // Suggest the conditions' latitude (whole degrees) once, if the shooter has not typed one.
+    LaunchedEffect(air?.latitudeDeg) { air?.latitudeDeg?.let { if (latitude.isBlank()) latitude = u.fmt(it, 0) } }
 
     fun request(): Pair<net.digitalgrease.squib.core.CardRequest?, String?> {
         val load = active ?: return null to "Add a load first."
@@ -134,7 +143,12 @@ private fun MainPage(c: BallisticsController, u: BallisticsUnits, onBack: () -> 
         val a = num(angle) ?: return null to "Enter the shot angle (0 for level)."
         val r = BallisticsUnits.ranges(num(from), num(to), num(step), u::distanceToSi)
             ?: return null to "Distances: from, to and step must make 1 to 60 distances."
-        return BallisticsController.request(load.id, choice, u.windToSi(w), BallisticsUnits.clockToDeg(clock), a, r) to null
+        val earth = if (!coriolis) null else {
+            val lat = num(latitude) ?: return null to "Enter the latitude for Earth's rotation."
+            val az = num(bearing) ?: return null to "Enter the shot direction for Earth's rotation."
+            CoriolisInput(lat, az)
+        }
+        return BallisticsController.request(load.id, choice, u.windToSi(w), BallisticsUnits.clockToDeg(clock), a, r, spin && canSpin, earth) to null
     }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("ballistics")) {
@@ -223,6 +237,27 @@ private fun MainPage(c: BallisticsController, u: BallisticsUnits, onBack: () -> 
             LabeledToggle("Corrections in mil (off: MOA)", u.mil, { c.setMil(it) }, controlAtEnd = true, tag = "units_mil")
         }
 
+        Section("Optional effects") {
+            Text(
+                "Both are off unless you turn them on. Each is checked against another solver; " +
+                    "together they move the bullet a few centimetres at 500 m and tens of centimetres at 1000 m.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LabeledToggle("Spin drift", spin && canSpin, { spin = it }, controlAtEnd = true, enabled = canSpin, tag = "spin_drift")
+            Text(
+                if (canSpin) "From the load's twist and bullet size (Litz's approximation)."
+                else "Needs the load's twist, bullet diameter and bullet length: add them with Edit.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("spin_note"),
+            )
+            LabeledToggle("Earth's rotation (Coriolis)", coriolis, { coriolis = it }, controlAtEnd = true, tag = "coriolis")
+            if (coriolis) {
+                NumberField(latitude, { latitude = it }, "Latitude (degrees, south negative)", "coriolis_latitude", Modifier.fillMaxWidth())
+                if (air?.latitudeDeg != null) Text("Suggested from the conditions' place, to the nearest degree.", style = MaterialTheme.typography.bodySmall)
+                NumberField(bearing, { bearing = it }, "Shot direction (compass degrees from true north)", "coriolis_bearing", Modifier.fillMaxWidth())
+            }
+        }
+
         var problem by remember { mutableStateOf<String?>(null) }
         Button(
             onClick = { c.clearMessage(); val (req, why) = request(); problem = why; req?.let { c.solve(it) } },
@@ -272,6 +307,15 @@ private fun RangeCard(r: CardView, u: BallisticsUnits) {
                 "angle ${u.fmt(r.lookAngleDeg, 0)}°" + (r.createdUtcMs?.let { ", saved ${fmtDate(it)}" } ?: ""),
             style = MaterialTheme.typography.bodySmall,
         )
+        val effects = listOfNotNull(
+            r.stability?.let { "spin drift included (stability ${u.fmt(it, 2)})" },
+            r.coriolis?.let { "Earth's rotation included (latitude ${u.fmt(it.latitudeDeg, 1)}°, shot direction ${u.fmt(it.azimuthDeg, 0)}°)" },
+        )
+        Text(
+            if (effects.isEmpty()) "No spin drift or Earth's rotation." else effects.joinToString("; ").replaceFirstChar { it.uppercase() } + ".",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("card_effects"),
+        )
         Column(Modifier.testTag("range_card")) {
             r.rows.forEach { row ->
                 val d = "${u.fmt(u.distanceFromSi(row.rangeM), 0)} ${u.distance}"
@@ -282,12 +326,14 @@ private fun RangeCard(r: CardView, u: BallisticsUnits) {
                 val time = "${u.fmt(row.timeS, 2)} s"
                 val energy = "${u.fmt(u.energyFromSi(row.energyJ), 0)} ${u.energy}"
                 val slow = if (row.transonic) ". Below Mach 1.2: less reliable" else ""
+                val drift = if (r.spinDrift) ", of which spin drift ${u.offset(row.spinDriftM, "right", "left")}" else ""
                 Column(
                     Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .clearAndSetSemantics { contentDescription = "$d: elevation $elev, wind $wind, bullet $drop, $vel, $time, $energy$slow" },
+                        .clearAndSetSemantics { contentDescription = "$d: elevation $elev, wind $wind$drift, bullet $drop, $vel, $time, $energy$slow" },
                 ) {
                     Text("$d   $elev   $wind", fontWeight = FontWeight.Bold)
                     Text("$drop · $vel · $time · $energy", style = MaterialTheme.typography.bodySmall)
+                    if (r.spinDrift) Text("Spin drift ${u.offset(row.spinDriftM, "right", "left")}", style = MaterialTheme.typography.bodySmall)
                     if (row.transonic) Text("Below Mach 1.2: less reliable", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -316,6 +362,8 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
     var zero by rememberSaveable { mutableStateOf(e?.let { u.fmt(u.distanceFromSi(it.zeroRangeM), 0) } ?: "100") }
     var twist by rememberSaveable { mutableStateOf(e?.twistM?.let { u.fmt(u.twistFromSi(kotlin.math.abs(it)), 1) } ?: "") }
     var leftTwist by rememberSaveable { mutableStateOf((e?.twistM ?: 0.0) < 0) }
+    var diameter by rememberSaveable { mutableStateOf(e?.bulletDiameterM?.let { u.fmt(u.bulletFromSi(it), if (u.us) 3 else 2) } ?: "") }
+    var length by rememberSaveable { mutableStateOf(e?.bulletLengthM?.let { u.fmt(u.bulletFromSi(it), if (u.us) 3 else 2) } ?: "") }
     var rifle by rememberSaveable { mutableStateOf(e?.equipmentId) }
     var notes by rememberSaveable { mutableStateOf(e?.notes ?: "") }
     var problem by remember { mutableStateOf<String?>(null) }
@@ -334,8 +382,11 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
         NumberField(mv, { mv = it }, "Muzzle velocity (${u.speed}), measured from your rifle", "load_mv", Modifier.fillMaxWidth())
         NumberField(sight, { sight = it }, "Sight height above the bore (${u.small})", "load_sight", Modifier.fillMaxWidth())
         NumberField(zero, { zero = it }, "Zero distance (${u.distance})", "load_zero", Modifier.fillMaxWidth())
-        NumberField(twist, { twist = it }, "Twist, one turn in (${u.small}), optional, not used yet", "load_twist", Modifier.fillMaxWidth())
+        Text("For spin drift (optional)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        NumberField(twist, { twist = it }, "Barrel twist, one turn in (${u.small})", "load_twist", Modifier.fillMaxWidth())
         if (twist.isNotBlank()) LabeledToggle("Left-hand twist", leftTwist, { leftTwist = it }, controlAtEnd = true)
+        NumberField(diameter, { diameter = it }, "Bullet diameter (${u.bullet})", "load_diameter", Modifier.fillMaxWidth())
+        NumberField(length, { length = it }, "Bullet length (${u.bullet}), from the maker or measured", "load_length", Modifier.fillMaxWidth())
         if (equipment.isNotEmpty()) {
             Text("Rifle (optional)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
             Choice("None", rifle == null, "rifle_none") { rifle = null }
@@ -346,6 +397,8 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
             onClick = {
                 val b = num(bc); val w = num(weight); val v = num(mv); val s = num(sight); val z = num(zero)
                 val t = if (twist.isBlank()) null else num(twist)
+                val dia = if (diameter.isBlank()) null else num(diameter)
+                val len = if (length.isBlank()) null else num(length)
                 problem = when {
                     name.isBlank() -> "Enter a name."
                     b == null -> "Enter the ballistic coefficient."
@@ -354,13 +407,16 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
                     s == null -> "Enter the sight height."
                     z == null -> "Enter the zero distance."
                     twist.isNotBlank() && t == null -> "Twist must be a number, or leave it empty."
+                    diameter.isNotBlank() && dia == null -> "Bullet diameter must be a number, or leave it empty."
+                    length.isNotBlank() && len == null -> "Bullet length must be a number, or leave it empty."
                     else -> null
                 }
                 if (problem == null) {
                     c.clearMessage()
                     val input = LoadInput(
                         name.trim(), rifle, if (g7) "G7" else "G1", b!!, u.weightToSi(w!!), u.speedToSi(v!!), u.smallToSi(s!!),
-                        u.distanceToSi(z!!), null, null, t?.let { u.twistToSi(it) * if (leftTwist) -1 else 1 }, notes,
+                        u.distanceToSi(z!!), dia?.let(u::bulletToSi), len?.let(u::bulletToSi),
+                        t?.let { u.twistToSi(it) * if (leftTwist) -1 else 1 }, notes,
                     )
                     c.saveLoad(id, input, onDone)
                 }

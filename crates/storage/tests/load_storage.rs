@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use squib_ballistics::{Atmosphere, DragModel, Load, Shot, Wind, solve};
+use squib_ballistics::{Atmosphere, DragModel, Earth, Load, Shot, Spin, Wind, solve};
 use squib_environment::privacy::LocationRetention;
 use squib_environment::*;
 use squib_storage::*;
@@ -44,6 +44,8 @@ fn card(id: &str, v: &LoadVersion, snapshot: Option<String>, session: Option<Str
         zero_air: None,
         wind: Some(Wind { speed_mps: 2.0, from_deg: 270.0 }),
         look_angle_deg: 5.0,
+        spin: None,
+        coriolis: None,
     };
     let ranges = vec![200.0, 400.0];
     let result = solve(&shot, &ranges).unwrap();
@@ -151,6 +153,33 @@ fn cards_record_exact_inputs_and_cannot_be_changed() {
     repo.delete_ballistic_card("c6").unwrap();
     assert_eq!(snaps(&mut repo), 0);
     assert!(repo.delete_ballistic_card("c6").is_err());
+}
+
+#[test]
+fn cards_with_optional_terms_use_the_load_versions_bullet() {
+    let dir = tmpdir("optional");
+    let mut repo = Repository::open(&dir.join("j.db")).unwrap();
+    let no_bullet = lv("a", 1, 820.0);
+    let with_bullet =
+        LoadVersion { version: 2, bullet_diameter_m: Some(0.006_71), bullet_length_m: Some(0.034_8), ..lv("a", 2, 820.0) };
+    repo.save_load_version(&no_bullet).unwrap();
+    repo.save_load_version(&with_bullet).unwrap();
+    let spin = Spin { twist_m: -0.203, diameter_m: 0.006_71, length_m: 0.034_8 };
+    let with_terms = |v: &LoadVersion, id: &str, spin: Spin| {
+        let mut c = card(id, v, None, None);
+        c.inputs.shot.spin = Some(spin);
+        c.inputs.shot.coriolis = Some(Earth { latitude_deg: 38.0, azimuth_deg: 270.0 });
+        c.result = solve(&c.inputs.shot, &c.inputs.ranges_m).unwrap();
+        c
+    };
+    let good = with_terms(&with_bullet, "c1", spin);
+    assert!(good.result.stability.is_some() && good.result.method.contains("Coriolis"));
+    repo.save_ballistic_card(&good).unwrap();
+    assert_eq!(repo.ballistic_card("c1").unwrap().unwrap(), good, "terms, stability and spin drift round-trip");
+
+    assert!(repo.save_ballistic_card(&with_terms(&no_bullet, "c2", spin)).is_err(), "version 1 has no bullet size");
+    let other = Spin { length_m: 0.03, ..spin };
+    assert!(repo.save_ballistic_card(&with_terms(&with_bullet, "c3", other)).is_err(), "not the version's bullet");
 }
 
 #[test]

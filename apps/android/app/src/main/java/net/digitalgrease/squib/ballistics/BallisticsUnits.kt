@@ -19,6 +19,7 @@ class BallisticsUnits(val us: Boolean, val mil: Boolean) {
     val temperature get() = if (us) "°F" else "°C"
     val pressure get() = if (us) "inHg" else "hPa"
     val windSpeed get() = if (us) "mph" else "m/s"
+    val bullet get() = if (us) "in" else "mm"
     val angle get() = if (mil) "mil" else "MOA"
 
     fun distanceToSi(v: Double) = if (us) v * YD else v
@@ -35,6 +36,10 @@ class BallisticsUnits(val us: Boolean, val mil: Boolean) {
     fun pressureToPa(v: Double) = if (us) v * INHG else v * 100
     fun windToSi(v: Double) = if (us) v * MPH else v
     fun windFromSi(mps: Double) = if (us) mps / MPH else mps
+
+    /** Bullet diameter and length: inches, or millimetres. */
+    fun bulletToSi(v: Double) = if (us) v * IN else v / 1000
+    fun bulletFromSi(m: Double) = if (us) m / IN else m * 1000
 
     /** Twist is entered as the length of one turn, in inches or centimetres. */
     fun twistToSi(v: Double) = smallToSi(v)

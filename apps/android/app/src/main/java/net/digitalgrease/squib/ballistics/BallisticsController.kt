@@ -15,6 +15,7 @@ import net.digitalgrease.squib.core.AirChoice
 import net.digitalgrease.squib.core.AirView
 import net.digitalgrease.squib.core.CardRequest
 import net.digitalgrease.squib.core.CardView
+import net.digitalgrease.squib.core.CoriolisInput
 import net.digitalgrease.squib.core.EquipmentView
 import net.digitalgrease.squib.core.LoadInput
 import net.digitalgrease.squib.core.LoadView
@@ -125,7 +126,18 @@ class BallisticsController(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        fun request(loadId: String, air: AirChoice, windMps: Double, windFromDeg: Double, angleDeg: Double, ranges: List<Double>) =
-            CardRequest(loadId, air, windMps, windFromDeg, angleDeg, ranges)
+        fun request(
+            loadId: String,
+            air: AirChoice,
+            windMps: Double,
+            windFromDeg: Double,
+            angleDeg: Double,
+            ranges: List<Double>,
+            spinDrift: Boolean = false,
+            coriolis: CoriolisInput? = null,
+        ) = CardRequest(loadId, air, windMps, windFromDeg, angleDeg, ranges, spinDrift, coriolis)
+
+        /** Whether a load has what spin drift needs. */
+        fun canSpin(l: LoadView?) = l != null && l.input.twistM != null && l.input.bulletDiameterM != null && l.input.bulletLengthM != null
     }
 }

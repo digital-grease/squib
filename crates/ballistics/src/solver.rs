@@ -8,7 +8,7 @@
 use squib_environment::derived::{ISA_G0, ISA_LAPSE, ISA_R};
 
 use crate::drag::DragCurve;
-use crate::{Atmosphere, BallisticsError, Load, Wind};
+use crate::{Atmosphere, BallisticsError, Earth, Load, Wind};
 
 pub const G: f64 = ISA_G0;
 /// kg/m² in one lb/in², the unit published ballistic coefficients use.
@@ -39,15 +39,18 @@ pub(crate) struct Model<'a> {
     pub k: f64,
     pub air: Atmosphere,
     pub wind: [f64; 3],
+    /// Earth's rotation in this frame, when Coriolis is on.
+    pub omega: Option<[f64; 3]>,
 }
 
 impl Model<'_> {
-    pub fn new<'a>(curve: &'a DragCurve, load: &Load, air: Atmosphere, wind: Option<Wind>) -> Model<'a> {
+    pub fn new<'a>(curve: &'a DragCurve, load: &Load, air: Atmosphere, wind: Option<Wind>, earth: Option<Earth>) -> Model<'a> {
         Model {
             curve,
             k: std::f64::consts::PI / (8.0 * load.bc_lb_in2 * LB_PER_IN2),
             air,
             wind: wind.map(|w| w.vector()).unwrap_or([0.0; 3]),
+            omega: earth.map(|e| e.omega()),
         }
     }
 
@@ -67,7 +70,13 @@ impl Model<'_> {
         let speed = norm(rel);
         let mach = speed / c;
         let f = self.k * rho * self.curve.cd(mach) * speed;
-        ([-f * rel[0], -G - f * rel[1], -f * rel[2]], mach)
+        let mut a = [-f * rel[0], -G - f * rel[1], -f * rel[2]];
+        if let Some(w) = self.omega {
+            // Coriolis, on the velocity over the ground: -2 Omega x v.
+            let c = cross(w, vel);
+            a = [a[0] - 2.0 * c[0], a[1] - 2.0 * c[1], a[2] - 2.0 * c[2]];
+        }
+        (a, mach)
     }
 
     pub fn mach(&self, s: &Sample) -> f64 {
@@ -177,6 +186,9 @@ fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 }
 fn scale(a: [f64; 3], k: f64) -> [f64; 3] {
     [a[0] * k, a[1] * k, a[2] * k]
+}
+fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
 fn norm(a: [f64; 3]) -> f64 {
     (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()

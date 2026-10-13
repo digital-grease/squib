@@ -23,6 +23,10 @@ class BallisticsUnitsTest {
         assertEquals(100_000.0, us.pressureToPa(29.53), 50.0)
         assertEquals(1.0, us.energyFromSi(1.355_817_948), 1e-9)
         assertEquals(10.0, us.windFromSi(us.windToSi(10.0)), 1e-9)
+        // Bullet size: inches, or millimetres.
+        assertEquals(0.007_823_2, us.bulletToSi(0.308), 1e-12)
+        assertEquals(0.0315, metric.bulletToSi(31.5), 1e-12)
+        assertEquals(7.82, metric.bulletFromSi(0.007_82), 1e-9)
     }
 
     @Test

@@ -357,6 +357,9 @@ fn test_card(id: &str, lv: &LoadVersion, snapshot: Option<String>, session: Opti
         zero_air: None,
         wind: Some(squib_ballistics::Wind { speed_mps: 3.0, from_deg: 90.0 }),
         look_angle_deg: 0.0,
+        spin: None,
+        // A backup keeps the optional terms a card used.
+        coriolis: Some(squib_ballistics::Earth { latitude_deg: 45.0, azimuth_deg: 90.0 }),
     };
     let ranges = vec![100.0, 300.0, 500.0];
     let result = squib_ballistics::solve(&shot, &ranges).unwrap();

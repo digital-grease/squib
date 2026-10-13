@@ -4,7 +4,7 @@
 //! conditions or entered), wind and shot angle; saving solves again in the core, pins the
 //! conditions used, and stores the full input, output and method. Experimental.
 
-use squib_ballistics::{Atmosphere, DragModel, Load, Shot, Wind};
+use squib_ballistics::{Atmosphere, DragModel, Earth, Load, Shot, Spin, Wind};
 use squib_environment::EnvironmentSnapshot;
 use squib_storage::{BallisticCard, CardInputs, LoadVersion};
 
@@ -170,6 +170,9 @@ pub struct AirView {
     pub uses_older_data: bool,
     /// Why there is no air, when there is none.
     pub reason: Option<String>,
+    /// The conditions' place to the nearest whole degree, to suggest for Coriolis; none
+    /// when the snapshot's precise place was removed.
+    pub latitude_deg: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -189,13 +192,28 @@ pub struct CardRequest {
     pub wind_from_deg: f64,
     pub look_angle_deg: f64,
     pub ranges_m: Vec<f64>,
+    /// Add spin drift (needs the load's twist, bullet diameter and bullet length).
+    pub spin_drift: bool,
+    /// Add Coriolis for this latitude and shot direction.
+    pub coriolis: Option<CoriolisInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct CoriolisInput {
+    /// Positive north of the equator.
+    pub latitude_deg: f64,
+    /// Direction of the shot, clockwise from true north.
+    pub azimuth_deg: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct RangeRow {
     pub range_m: f64,
     pub drop_m: f64,
+    /// Spin drift included.
     pub windage_m: f64,
+    /// The part of the windage that is spin drift.
+    pub spin_drift_m: f64,
     /// Corrections: positive means dial or hold up, and right.
     pub elevation_mil: f64,
     pub elevation_moa: f64,
@@ -224,6 +242,10 @@ pub struct CardView {
     pub wind_mps: f64,
     pub wind_from_deg: f64,
     pub look_angle_deg: f64,
+    pub spin_drift: bool,
+    /// Miller stability factor, with spin drift.
+    pub stability: Option<f64>,
+    pub coriolis: Option<CoriolisInput>,
     pub zero_elevation_mil: f64,
     pub rows: Vec<RangeRow>,
     pub unreached_m: Vec<f64>,
@@ -247,6 +269,7 @@ fn air_of(s: &EnvironmentSnapshot) -> AirView {
             inputs: d.inputs,
             uses_older_data: d.uses_older_data,
             reason: None,
+            latitude_deg: latitude_of(s),
         },
         (_, _) => AirView {
             available: false,
@@ -255,8 +278,13 @@ fn air_of(s: &EnvironmentSnapshot) -> AirView {
             inputs: vec![],
             uses_older_data: false,
             reason: Some(reason.unwrap_or_else(|| "Needs temperature.".into())),
+            latitude_deg: latitude_of(s),
         },
     }
+}
+
+fn latitude_of(s: &EnvironmentSnapshot) -> Option<f64> {
+    s.reference.as_ref().filter(|_| !s.redacted).map(|r| r.lat.round()).filter(|l| l.is_finite() && l.abs() <= 90.0)
 }
 
 fn card_view(repo: &squib_storage::Repository, c: &BallisticCard, lv: LoadVersion, air: &AirView) -> CardView {
@@ -274,6 +302,9 @@ fn card_view(repo: &squib_storage::Repository, c: &BallisticCard, lv: LoadVersio
         wind_mps: wind.speed_mps,
         wind_from_deg: wind.from_deg,
         look_angle_deg: shot.look_angle_deg,
+        spin_drift: shot.spin.is_some(),
+        stability: c.result.stability,
+        coriolis: shot.coriolis.map(|e| CoriolisInput { latitude_deg: e.latitude_deg, azimuth_deg: e.azimuth_deg }),
         zero_elevation_mil: c.result.zero_elevation_rad * 1000.0,
         rows: c
             .result
@@ -283,6 +314,7 @@ fn card_view(repo: &squib_storage::Repository, c: &BallisticCard, lv: LoadVersio
                 range_m: p.range_m,
                 drop_m: p.drop_m,
                 windage_m: p.windage_m,
+                spin_drift_m: p.spin_drift_m,
                 elevation_mil: p.elevation_mil,
                 elevation_moa: p.elevation_moa,
                 windage_mil: p.windage_mil,
@@ -346,6 +378,7 @@ impl SquibEngine {
                     inputs: vec![],
                     uses_older_data: false,
                     reason: None,
+                    latitude_deg: None,
                 };
                 (a, air, None)
             }
@@ -356,6 +389,15 @@ impl SquibEngine {
             zero_air: None,
             wind: (req.wind_mps != 0.0).then_some(Wind { speed_mps: req.wind_mps, from_deg: req.wind_from_deg }),
             look_angle_deg: req.look_angle_deg,
+            spin: if req.spin_drift {
+                match (lv.twist_m, lv.bullet_diameter_m, lv.bullet_length_m) {
+                    (Some(twist_m), Some(diameter_m), Some(length_m)) => Some(Spin { twist_m, diameter_m, length_m }),
+                    _ => return Err(rejected("spin drift needs the load's twist, bullet diameter and bullet length")),
+                }
+            } else {
+                None
+            },
+            coriolis: req.coriolis.map(|c| Earth { latitude_deg: c.latitude_deg, azimuth_deg: c.azimuth_deg.rem_euclid(360.0) }),
         };
         let result = squib_ballistics::solve(&shot, &req.ranges_m).map_err(rejected)?;
         let card = BallisticCard {
@@ -386,6 +428,7 @@ impl SquibEngine {
                 inputs: vec![],
                 uses_older_data: false,
                 reason: Some("No current conditions. Refresh them on the Conditions screen, or enter the air.".into()),
+                latitude_deg: None,
             },
         }
     }
@@ -448,5 +491,6 @@ fn manual_air(c: &BallisticCard) -> AirView {
         inputs: vec![],
         uses_older_data: false,
         reason: None,
+        latitude_deg: None,
     }
 }

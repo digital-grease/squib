@@ -29,6 +29,8 @@ fn shot_from(i: &Value) -> Shot {
         zero_air: None,
         wind: (f(i, "wind_mps") > 0.0).then(|| Wind { speed_mps: f(i, "wind_mps"), from_deg: f(i, "wind_from_deg") }),
         look_angle_deg: f(i, "look_angle_deg"),
+        spin: None,
+        coriolis: None,
     }
 }
 
@@ -154,6 +156,8 @@ fn level_shot() -> Shot {
         zero_air: None,
         wind: None,
         look_angle_deg: 0.0,
+        spin: None,
+        coriolis: None,
     }
 }
 
@@ -298,6 +302,12 @@ fn robust_random_inputs() {
             zero_air: None,
             wind: Some(Wind { speed_mps: pick(0.0, 45.0), from_deg: pick(-720.0, 720.0) }),
             look_angle_deg: pick(-70.0, 70.0),
+            spin: (i % 3 == 0).then(|| Spin {
+                twist_m: pick(-1.1, 1.1),
+                diameter_m: pick(0.0, 0.035),
+                length_m: pick(0.0, 0.09),
+            }),
+            coriolis: (i % 4 == 0).then(|| Earth { latitude_deg: pick(-100.0, 100.0), azimuth_deg: pick(-10.0, 370.0) }),
         };
         let ranges = [pick(0.0, 3200.0), pick(0.0, 1000.0)];
         let r = std::panic::catch_unwind(|| solve(&shot, &ranges));
@@ -353,6 +363,8 @@ fn matches_published_manufacturer_tables() {
             zero_air: None,
             wind: None,
             look_angle_deg: 0.0,
+            spin: None,
+            coriolis: None,
         };
         // Published values the fixture marks as excluded, each with its reason.
         let excl = p["excluded"].as_array().cloned().unwrap_or_default();

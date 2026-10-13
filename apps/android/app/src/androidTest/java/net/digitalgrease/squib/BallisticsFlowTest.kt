@@ -3,6 +3,8 @@ package net.digitalgrease.squib
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -23,7 +25,9 @@ import org.junit.runner.RunWith
  * Plan 6.4 on an emulator: add a load, enter the air, calculate a range card, check it
  * against the validated reference (py-ballisticcalc case g7_308_175_standard: 10.97 m
  * below the line of sight at 1000 yd, 12.0 mil), save, reopen, edit the load into a new
- * version, and remove everything again.
+ * version, and remove everything again. Plan 6.5: the optional effects are off until
+ * chosen, spin drift needs the bullet's size, and both show on the card (reference
+ * py-ballisticcalc case spin_308_175_rh10: 0.332 m of spin drift at 1000 yd, stability 2.40).
  */
 @RunWith(AndroidJUnit4::class)
 class BallisticsFlowTest {
@@ -124,5 +128,70 @@ class BallisticsFlowTest {
         rule.waitOrDump { tag("ballistics") && !has(name) }
         rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.waitOrDump { tag("conditions") }
+    }
+
+    @Test
+    fun optionalEffects() {
+        rule.runOnUiThread { ViewModelProvider(rule.activity)[ConditionsController::class.java].setUsUnits(true) }
+        val name = "Flow spin ${System.currentTimeMillis() % 100000}"
+        rule.onNodeWithTag("tab_conditions").performClick()
+        rule.waitOrDump { tag("conditions") }
+        rule.onNodeWithTag("open_ballistics").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") }
+
+        rule.onNodeWithTag("load_add").performScrollTo().performClick()
+        rule.waitOrDump { tag("load_editor") }
+        type("load_name", name)
+        rule.onNodeWithTag("model_g7").performScrollTo().performClick()
+        type("load_bc", "0.243")
+        type("load_weight", "175")
+        type("load_mv", "2600")
+        type("load_sight", "1.5")
+        type("load_zero", "100")
+        type("load_twist", "10")
+        rule.onNodeWithTag("load_save").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") && has(name) }
+
+        // Without the bullet's size spin drift cannot be chosen, and says why.
+        scrollTo("ballistics", "spin_drift")
+        rule.onNodeWithTag("spin_drift").assertIsNotEnabled()
+        check(has("Needs the load's twist, bullet diameter and bullet length")) { "spin drift says what it needs" }
+        rule.onNodeWithTag("load_edit").performScrollTo().performClick()
+        rule.waitOrDump { tag("load_editor") }
+        type("load_diameter", "0.308")
+        type("load_length", "1.240")
+        rule.onNodeWithTag("load_save").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") && has("(version 2)") }
+
+        rule.onNodeWithTag("air_manual").performScrollTo().performClick()
+        type("air_pressure", "29.92")
+        type("air_temperature", "59")
+        type("air_humidity", "0")
+        type("wind_speed", "0")
+        type("shot_angle", "0")
+        type("range_from", "100")
+        type("range_to", "1000")
+        type("range_step", "100")
+        scrollTo("ballistics", "spin_drift")
+        rule.onNodeWithTag("spin_drift").assertIsEnabled().performClick()
+        rule.onNodeWithTag("coriolis").performScrollTo().performClick()
+        rule.waitOrDump { tag("coriolis_latitude") }
+        type("coriolis_latitude", "45")
+        rule.onNodeWithTag("ballistics_solve").performScrollTo().performClick()
+        rule.waitOrDump { has("Enter the shot direction") }
+        type("coriolis_bearing", "90")
+        rule.onNodeWithTag("ballistics_solve").performScrollTo().performClick()
+        rule.waitOrDump(20_000) { tag("range_card") }
+        scrollTo("ballistics", "range_card")
+        rule.waitOrDump { has("Spin drift included (stability 2.40)") && has("latitude 45.0°, shot direction 90°") }
+        val row = rule.onAllNodes(spokenRow("1000 yd")).fetchSemanticsNodes().single().config[SemanticsProperties.ContentDescription].single()
+        check(row.contains("of which spin drift 13.1 in right")) { row }
+        check(row.contains("left")) { "spin drift and Earth's rotation to the right: hold left. $row" }
+        check(has("Litz") && has("Coriolis")) { "method names both terms" }
+
+        rule.onNodeWithTag("load_edit").performScrollTo().performClick()
+        rule.waitOrDump { tag("load_archive") }
+        rule.onNodeWithTag("load_archive").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") && !has(name) }
     }
 }

@@ -104,6 +104,8 @@ fn request(load_id: &str, air: ballistics_api::AirChoice) -> ballistics_api::Car
         wind_from_deg: 90.0,
         look_angle_deg: 0.0,
         ranges_m: vec![100.0, 300.0, 600.0, 1200.0],
+        spin_drift: false,
+        coriolis: None,
     }
 }
 
@@ -160,4 +162,60 @@ fn range_cards_solve_save_and_read_back() {
     let bad_air = AirChoice::Manual { pressure_pa: 5_000.0, temperature_k: 288.0, relative_humidity: 0.5 };
     assert!(e.solve_card(request(&load.id, bad_air), NOW).unwrap_err().to_string().contains("pressure"));
     assert!(e.solve_card(request("nope", AirChoice::Conditions), NOW).is_err());
+}
+
+/// Plan 6.5: spin drift and Coriolis are off unless asked for; spin drift needs the
+/// load's bullet size and twist; the latitude is suggested from the conditions' place to
+/// the whole degree; a saved card keeps its terms.
+#[test]
+fn optional_terms_on_range_cards() {
+    use ballistics_api::{AirChoice, CardRequest, CoriolisInput};
+    let (e, _) = engine("terms");
+    let manual = AirChoice::Manual { pressure_pa: 101_325.0, temperature_k: 288.15, relative_humidity: 0.0 };
+    let partial = e.save_load(None, input("175 SMK", 790.0), NOW).unwrap();
+    let ask = |id: &str, spin: bool, coriolis: Option<CoriolisInput>| CardRequest {
+        spin_drift: spin,
+        coriolis,
+        wind_mps: 0.0,
+        ..request(id, manual.clone())
+    };
+    let err = e.solve_card(ask(&partial.id, true, None), NOW).unwrap_err().to_string();
+    assert!(err.contains("bullet length"), "{err}");
+
+    let full = e.save_load(None, LoadInput { bullet_length_m: Some(0.031_5), ..input("175 SMK long", 790.0) }, NOW).unwrap();
+    let plain = e.solve_card(ask(&full.id, false, None), NOW).unwrap();
+    assert!(!plain.spin_drift && plain.stability.is_none() && plain.coriolis.is_none());
+    assert!(plain.rows.iter().all(|r| r.spin_drift_m == 0.0 && r.windage_m.abs() < 1e-9));
+    let spun = e.solve_card(ask(&full.id, true, None), NOW).unwrap();
+    let sg = spun.stability.unwrap();
+    assert!((2.0..3.0).contains(&sg), "{sg}");
+    assert!(spun.rows.iter().all(|r| r.spin_drift_m > 0.0 && r.windage_m == r.spin_drift_m && r.windage_mil < 0.0));
+    assert!(spun.method.contains("Litz"));
+
+    let unstable = LoadInput { twist_m: Some(0.42), bullet_length_m: Some(0.031_5), ..input("slow twist", 790.0) };
+    let slow = e.save_load(None, unstable, NOW).unwrap();
+    let err = e.solve_card(ask(&slow.id, true, None), NOW).unwrap_err().to_string();
+    assert!(err.contains("not stable"), "{err}");
+
+    // Shot direction is taken modulo a turn; latitude is checked.
+    let east = Some(CoriolisInput { latitude_deg: 39.0, azimuth_deg: 450.0 });
+    let c = e.solve_card(ask(&full.id, false, east), NOW).unwrap();
+    assert_eq!(c.coriolis.unwrap().azimuth_deg, 90.0);
+    assert!(c.rows[3].drop_m > plain.rows[3].drop_m && c.rows[3].windage_m > 0.0, "east in the north: high and right");
+    let bad = Some(CoriolisInput { latitude_deg: 95.0, azimuth_deg: 0.0 });
+    assert!(e.solve_card(ask(&full.id, false, bad), NOW).unwrap_err().to_string().contains("latitude"));
+
+    // The conditions' place suggests the latitude, rounded to the degree.
+    assert_eq!(e.ballistics_air(NOW).latitude_deg, None);
+    e.set_override("temperature".into(), 293.15, 20.0, "degC".into(), NOW).unwrap();
+    e.set_override("local_pressure".into(), 99_000.0, 990.0, "hPa".into(), NOW).unwrap();
+    e.set_override("relative_humidity".into(), 0.4, 40.0, "%".into(), NOW).unwrap();
+    e.set_place(conditions::PlaceInput { lat: 38.62, lon: -90.19, label: None, source: "manual".into() }).unwrap();
+    assert_eq!(e.ballistics_air(NOW).latitude_deg, Some(39.0));
+
+    let saved = e.save_card(ask(&full.id, true, east), "Both".into(), NOW + 1).unwrap();
+    let back = &e.list_cards(5).unwrap()[0];
+    assert_eq!(back.rows, saved.rows);
+    assert!(back.spin_drift && back.stability == saved.stability && back.coriolis == saved.coriolis);
+    assert!(back.method.contains("Litz") && back.method.contains("Coriolis"));
 }

@@ -221,7 +221,13 @@ impl Repository {
         if lv.load != c.inputs.shot.load {
             return Err(conflict("the card's load does not match the saved load version"));
         }
-        if c.result.method.trim().is_empty() || c.result.method.chars().count() > 400 {
+        if let Some(s) = c.inputs.shot.spin {
+            let from_load = (lv.twist_m, lv.bullet_diameter_m, lv.bullet_length_m);
+            if from_load != (Some(s.twist_m), Some(s.diameter_m), Some(s.length_m)) {
+                return Err(conflict("the card's spin drift inputs do not match the saved load version"));
+            }
+        }
+        if c.result.method.trim().is_empty() || c.result.method.chars().count() > squib_ballistics::MAX_METHOD_CHARS {
             return Err(conflict("a card must record its method"));
         }
         if c.result.points.len() > squib_ballistics::MAX_POINTS || c.inputs.ranges_m.len() > squib_ballistics::MAX_POINTS {

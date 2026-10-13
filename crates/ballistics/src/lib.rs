@@ -6,8 +6,10 @@
 //! coefficient; gravity; drag on the velocity relative to a constant horizontal wind; air
 //! density and speed of sound from the firing point as measured, carried along the path
 //! by the ISA lapse rate; fixed-step fourth-order Runge-Kutta integration, checked by
-//! repeating at half the step; the weapon zeroed on a level shot. Not modelled: spin
-//! drift, Coriolis, aerodynamic jump, wind that changes along the path.
+//! repeating at half the step; the weapon zeroed on a level shot. Optional, off unless
+//! asked for (plan 6.5, ADR-064): spin drift by Litz's approximation with Miller's
+//! stability, and Coriolis from the Earth's rotation. Not modelled: aerodynamic jump,
+//! wind that changes along the path.
 
 pub mod drag;
 pub mod solver;
@@ -18,10 +20,36 @@ use thiserror::Error;
 pub use drag::{DragCurve, DragModel};
 use solver::{Model, Sample, at_slant, integrate, sight_coords};
 
-/// Recorded with every result: the method and its version.
-pub const METHOD: &str = "squib-pointmass-v1: BRL G1/G7 tables (PCHIP) scaled by BC; RK4 at 0.5 ms with a \
-                          half-step check; firing-point air as measured, ISA lapse along the path; level zero; \
-                          constant horizontal wind; no spin drift, Coriolis or aerodynamic jump";
+macro_rules! method_base {
+    () => {
+        "squib-pointmass-v1: BRL G1/G7 tables (PCHIP) scaled by BC; RK4 at 0.5 ms with a half-step check; \
+         firing-point air as measured, ISA lapse along the path; level zero; constant horizontal wind"
+    };
+}
+
+/// Recorded with every result: the method and its version. This is the method with
+/// neither optional term; `method` names the terms a result used.
+pub const METHOD: &str = concat!(method_base!(), "; no spin drift, Coriolis or aerodynamic jump");
+const SPIN_METHOD: &str = "spin drift: Litz 1.25 (SG + 1.2) t^1.83 in, Miller SG with velocity and density corrections";
+const CORIOLIS_METHOD: &str = "Coriolis: -2 Omega x v integrated, not in the zero";
+/// Longest method string (storage keeps up to 400 characters).
+pub const MAX_METHOD_CHARS: usize = 400;
+
+/// The method string for a shot, naming the optional terms it used.
+pub fn method(spin: bool, coriolis: bool) -> String {
+    match (spin, coriolis) {
+        (false, false) => METHOD.into(),
+        (true, false) => format!("{}; {SPIN_METHOD}; no Coriolis or aerodynamic jump", method_base!()),
+        (false, true) => format!("{}; {CORIOLIS_METHOD}; no spin drift or aerodynamic jump", method_base!()),
+        (true, true) => format!("{}; {SPIN_METHOD}; {CORIOLIS_METHOD}; no aerodynamic jump", method_base!()),
+    }
+}
+
+/// Earth's rotation rate, rad/s (sidereal).
+pub const EARTH_RATE: f64 = 7.292_115_9e-5;
+/// Below this Miller stability the bullet is not gyroscopically stable, and Litz's
+/// approximation does not apply.
+pub const MIN_STABILITY: f64 = 1.0;
 
 pub const STEP_S: f64 = 0.0005;
 /// Half-step results must agree within this, metres of drop or windage at every range.
@@ -96,6 +124,32 @@ impl Wind {
     }
 }
 
+/// The bullet and barrel, for spin drift.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Spin {
+    /// Length of one turn of the rifling; negative for a left-hand twist.
+    pub twist_m: f64,
+    pub diameter_m: f64,
+    pub length_m: f64,
+}
+
+/// Where and which way the shot is fired, for Coriolis.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Earth {
+    /// Positive north of the equator.
+    pub latitude_deg: f64,
+    /// Direction of the shot, clockwise from true north.
+    pub azimuth_deg: f64,
+}
+
+impl Earth {
+    /// The Earth's rotation in the solver frame (x downrange, y up, z right), rad/s.
+    pub fn omega(&self) -> [f64; 3] {
+        let (l, a) = (self.latitude_deg.to_radians(), self.azimuth_deg.to_radians());
+        [EARTH_RATE * l.cos() * a.cos(), EARTH_RATE * l.sin(), -EARTH_RATE * l.cos() * a.sin()]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shot {
     pub load: Load,
@@ -105,6 +159,12 @@ pub struct Shot {
     pub wind: Option<Wind>,
     /// Line of sight above (positive) or below the horizontal, degrees.
     pub look_angle_deg: f64,
+    /// Spin drift, when set. Absent in cards saved before plan 6.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spin: Option<Spin>,
+    /// Coriolis, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coriolis: Option<Earth>,
 }
 
 /// The solution at one distance along the line of sight.
@@ -113,8 +173,11 @@ pub struct RangePoint {
     pub range_m: f64,
     /// Bullet above (positive) or below the line of sight, perpendicular to it.
     pub drop_m: f64,
-    /// Bullet right (positive) or left of the line of sight.
+    /// Bullet right (positive) or left of the line of sight, spin drift included.
     pub windage_m: f64,
+    /// The part of `windage_m` that is spin drift.
+    #[serde(default)]
+    pub spin_drift_m: f64,
     /// Elevation correction to hit: positive means dial or hold up.
     pub elevation_mil: f64,
     pub elevation_moa: f64,
@@ -139,6 +202,9 @@ pub struct Solution {
     pub unreached_m: Vec<f64>,
     /// Largest difference between the full-step and half-step solutions, metres.
     pub convergence_m: f64,
+    /// Miller stability factor, when spin drift was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability: Option<f64>,
 }
 
 fn check(ok: bool, what: &str) -> Result<()> {
@@ -171,6 +237,16 @@ pub fn validate(shot: &Shot, ranges_m: &[f64]) -> Result<()> {
         check(finite(w.from_deg), "wind direction must be a number")?;
     }
     check(finite(shot.look_angle_deg) && shot.look_angle_deg.abs() <= 60.0, "shot angle must be within 60° of level")?;
+    if let Some(s) = shot.spin {
+        check(finite(s.twist_m) && (0.1..=1.0).contains(&s.twist_m.abs()), "twist must be one turn in 10 to 100 cm")?;
+        check(finite(s.diameter_m) && (0.002..=0.03).contains(&s.diameter_m), "bullet diameter must be 2 to 30 mm")?;
+        check(finite(s.length_m) && (0.005..=0.08).contains(&s.length_m), "bullet length must be 5 to 80 mm")?;
+        check(s.length_m > s.diameter_m, "bullet length must be more than its diameter")?;
+    }
+    if let Some(e) = shot.coriolis {
+        check(finite(e.latitude_deg) && e.latitude_deg.abs() <= 90.0, "latitude must be -90 to 90°")?;
+        check(finite(e.azimuth_deg) && (0.0..360.0).contains(&e.azimuth_deg), "shot direction must be 0 to 359°")?;
+    }
     check(!ranges_m.is_empty() && ranges_m.len() <= MAX_POINTS, "choose 1 to 200 distances")?;
     check(ranges_m.iter().all(|r| r.is_finite() && (0.0..=MAX_RANGE_M).contains(r)), "distances must be 0 to 3000 m")?;
     Ok(())
@@ -180,7 +256,7 @@ pub fn validate(shot: &Shot, ranges_m: &[f64]) -> Result<()> {
 /// the line of sight at the zero range, in still air.
 pub fn zero_elevation(load: &Load, air: Atmosphere, dt: f64) -> Result<f64> {
     let curve = DragCurve::new(load.model);
-    let m = Model::new(&curve, load, air, None);
+    let m = Model::new(&curve, load, air, None, None);
     let height_at_zero = |e: f64| -> Result<f64> {
         let path = integrate(&m, load.muzzle_velocity_mps, load.sight_height_m, 0.0, e, load.zero_range_m + 1.0, dt, MAX_TIME_S)?;
         let s = at_slant(&path, 0.0, load.zero_range_m)
@@ -215,7 +291,7 @@ pub fn zero_elevation(load: &Load, air: Atmosphere, dt: f64) -> Result<f64> {
 /// Dense path for a shot at a given bore elevation (relative to the line of sight).
 pub fn path(shot: &Shot, elevation_rad: f64, max_slant_m: f64, dt: f64) -> Result<Vec<Sample>> {
     let curve = DragCurve::new(shot.load.model);
-    let m = Model::new(&curve, &shot.load, shot.air, shot.wind);
+    let m = Model::new(&curve, &shot.load, shot.air, shot.wind, shot.coriolis);
     integrate(
         &m,
         shot.load.muzzle_velocity_mps,
@@ -228,10 +304,32 @@ pub fn path(shot: &Shot, elevation_rad: f64, max_slant_m: f64, dt: f64) -> Resul
     )
 }
 
+/// Miller's stability factor for a spin-stabilised bullet, with his velocity correction
+/// and his atmosphere correction (temperature and pressure relative to 59 F and 29.92
+/// inHg), written here as the equivalent ratio of dry-air densities.
+pub fn miller_stability(load: &Load, spin: &Spin, air: Atmosphere) -> f64 {
+    const IN: f64 = 0.0254;
+    let grains = load.mass_kg / 0.000_064_798_91;
+    let d = spin.diameter_m / IN;
+    let twist_cal = spin.twist_m.abs() / spin.diameter_m;
+    let len_cal = spin.length_m / spin.diameter_m;
+    let sg = 30.0 * grains / (twist_cal.powi(2) * d.powi(3) * len_cal * (1.0 + len_cal.powi(2)));
+    let fv = (load.muzzle_velocity_mps / 0.3048 / 2800.0).cbrt();
+    // Dry air at 59 F (15 C) and 29.92 inHg.
+    let rho_std = 29.92 * 3386.389 / (squib_environment::derived::ISA_R * 288.15);
+    sg * fv * rho_std / air.density_kg_m3
+}
+
+/// Litz's spin drift, metres, after `t` seconds: to the right for a right-hand twist.
+pub fn spin_drift(stability: f64, twist_m: f64, t: f64) -> f64 {
+    twist_m.signum() * 1.25 * (stability + 1.2) * t.powf(1.83) * 0.0254
+}
+
 fn points_for(shot: &Shot, zero: f64, ranges: &[f64], dt: f64) -> Result<(Vec<RangePoint>, Vec<f64>)> {
     let max = ranges.iter().copied().fold(0.0, f64::max);
     let look = shot.look_angle_deg.to_radians();
     let p = path(shot, zero, max + 1.0, dt)?;
+    let spin = shot.spin.map(|s| (miller_stability(&shot.load, &s, shot.air), s.twist_m));
     let mut points = Vec::new();
     let mut unreached = Vec::new();
     for &r in ranges {
@@ -240,7 +338,8 @@ fn points_for(shot: &Shot, zero: f64, ranges: &[f64], dt: f64) -> Result<(Vec<Ra
             continue;
         };
         let (_, drop) = sight_coords(s.pos, look);
-        let windage = s.pos[2];
+        let spin_drift_m = spin.map(|(sg, twist)| spin_drift(sg, twist, s.t)).unwrap_or(0.0);
+        let windage = s.pos[2] + spin_drift_m;
         let v = s.speed();
         // Angular corrections subtend the miss at the distance; none at the muzzle.
         let ang = |miss: f64| if r > 0.0 { -(miss / r).atan() } else { 0.0 };
@@ -249,6 +348,7 @@ fn points_for(shot: &Shot, zero: f64, ranges: &[f64], dt: f64) -> Result<(Vec<Ra
             range_m: r,
             drop_m: drop,
             windage_m: windage,
+            spin_drift_m,
             elevation_mil: el * 1000.0,
             elevation_moa: el.to_degrees() * 60.0,
             windage_mil: wd * 1000.0,
@@ -265,9 +365,18 @@ fn points_for(shot: &Shot, zero: f64, ranges: &[f64], dt: f64) -> Result<(Vec<Ra
 
 /// Solve a range card: the level zero, then the shot at each distance (along the line
 /// of sight). The whole solution is repeated at half the step; if any drop or windage
-/// differs by more than `CONVERGENCE_M`, it is refused.
+/// differs by more than `CONVERGENCE_M`, it is refused. The zero never includes the
+/// optional terms: it is the rifle's level zero as made.
 pub fn solve(shot: &Shot, ranges_m: &[f64]) -> Result<Solution> {
     validate(shot, ranges_m)?;
+    let stability = shot.spin.map(|s| miller_stability(&shot.load, &s, shot.air));
+    if let Some(sg) = stability
+        && sg < MIN_STABILITY
+    {
+        return Err(BallisticsError::OutOfModel(format!(
+            "the bullet is not stable at this twist (Miller stability {sg:.2}), so spin drift does not apply"
+        )));
+    }
     let zero_air = shot.zero_air.unwrap_or(shot.air);
     let zero = zero_elevation(&shot.load, zero_air, STEP_S)?;
     let (points, unreached) = points_for(shot, zero, ranges_m, STEP_S)?;
@@ -281,5 +390,12 @@ pub fn solve(shot: &Shot, ranges_m: &[f64]) -> Result<Solution> {
     if convergence > CONVERGENCE_M {
         return Err(BallisticsError::NotConverged(convergence));
     }
-    Ok(Solution { method: METHOD.into(), zero_elevation_rad: zero, points, unreached_m: unreached, convergence_m: convergence })
+    Ok(Solution {
+        method: method(shot.spin.is_some(), shot.coriolis.is_some()),
+        zero_elevation_rad: zero,
+        points,
+        unreached_m: unreached,
+        convergence_m: convergence,
+        stability,
+    })
 }
