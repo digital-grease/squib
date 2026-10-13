@@ -40,6 +40,7 @@ Squib is an early prototype and is not yet available in any app store.
 - Range conditions work with US weather stations (National Weather Service) and, anywhere else, with nearby airport reports (METAR). Where no station reports nearby, enter values by hand.
 - Shot timing works in testing on a computer and in the Android emulator, but it has **not yet been tested on a real phone at a real range**. Treat its times as experimental until that testing is done.
 - Long sessions and screen response have been measured on a computer and in the emulator only: 30 minutes of continuous capture with no gaps, and 95% of on-screen cues drawn within 34 ms of when they were due, the slowest in 87 ms (the target is 95% under 150 ms). These still need measuring on real phones.
+- An iOS version exists as an experiment: the par timer only, on the same core. It is set up to be built and tested on the iOS simulator in the automated checks and has never run on an iPhone; shot timing on iOS needs one to develop.
 - Squib does not claim any particular accuracy. It labels uncertain results, interrupted runs, and setups it cannot vouch for instead of guessing.
 
 ## Privacy
@@ -62,7 +63,7 @@ Squib is an early prototype and is not yet available in any app store.
 
 ## Planned
 
-Support for one dedicated shot-timer accessory and phone or watch remote controls, both waiting on suitable test hardware. Video needs testing on real phones before it can leave experimental status.
+Support for one dedicated shot-timer accessory and phone or watch remote controls, both waiting on suitable test hardware. Shot timing on iOS is waiting on an iPhone to test with. Video needs testing on real phones before it can leave experimental status.
 
 ## License
 
@@ -76,7 +77,7 @@ In the app, History › Data and backup › About shows the version, the full li
 
 ### Architecture
 
-A shared Rust core holds all timing logic, shot detection, the run state machine, and the SQLite journal. The Android app (Kotlin, Jetpack Compose) handles permissions, audio capture and playback, and the screens. Control calls cross into Rust through UniFFI; audio samples cross through a small JNI bridge into a bounded, preallocated queue processed on its own thread.
+A shared Rust core holds all timing logic, shot detection, the run state machine, and the SQLite journal. The Android app (Kotlin, Jetpack Compose) handles permissions, audio capture and playback, and the screens. Control calls cross into Rust through UniFFI; audio samples cross through a small JNI bridge into a bounded, preallocated queue processed on its own thread. The experimental iOS app (SwiftUI) uses the same core through UniFFI's Swift bindings, statically linked, and plays cues with AVAudioEngine; it has no audio capture yet.
 
 Range conditions are resolved field by field in Rust: a manual value wins, then a fresh phone sensor, then the best-ranked fresh nearby station, otherwise Unavailable. Pressure kinds are separate fields, so a station's altimeter setting or sea-level pressure can never stand in for the actual pressure where you are (NWS observations do not include station pressure). Airport METAR reports are parsed from their raw text rather than the API's rounded convenience fields, keeping the units each report states; humidity from METAR is derived from temperature and dew point and labelled as derived, and a QFE remark (actual pressure at the airport) stays a remote-station value. Ages always come from observation time, not fetch time. The Android app performs the HTTP requests the core plans and validates; snapshots saved with runs are redacted unless precise retention is enabled.
 
@@ -105,7 +106,7 @@ fixtures/nws/             captured api.weather.gov responses (public domain) for
 fixtures/metar/           captured aviationweather.gov METAR responses (public domain) for adapter tests
 fixtures/epqs/            captured USGS elevation responses (public domain) for terrain tests
 testing/                  dependency-free mutation fuzzer shared by the parser robustness tests
-scripts/                  Android core build, emulator UI driver, third-party notices generator
+scripts/                  Android and iOS core builds, Linux Swift check, emulator UI driver, third-party notices generator
 fastlane/                 F-Droid store listing (descriptions, changelogs)
 fdroid/                   draft F-Droid build recipe and open packaging points (not submitted)
 .github/                  CI workflow and issue forms (used by the in-app problem report)
@@ -143,6 +144,20 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 `-PsquibSkipRust=true` reuses previously built native libraries. `-PsquibRustProfile=debug` builds the core unoptimized.
 
+### iOS (experimental)
+
+```sh
+# macOS with Xcode 26 and XcodeGen 2.46: the core for the simulator, the Swift bindings, the project
+./scripts/build-ios-core.sh sim
+cd apps/ios && xcodegen generate
+xcodebuild test -project Squib.xcodeproj -scheme Squib -destination 'platform=iOS Simulator,name=iPhone 17'
+
+# Linux with Docker: the Swift bindings and the par-timer model against the Linux core
+./scripts/swift-linux-test.sh
+```
+
+`build-ios-core.sh` without `sim` also builds the device slice. The Xcode project is generated from `apps/ios/project.yml` and not committed; there is no signing setup, so builds are for the simulator.
+
 ### Release build
 
 ```sh
@@ -164,4 +179,4 @@ To run the instrumented suite against the minified build on an emulator (local t
 
 ### Evidence so far
 
-Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come.
+Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come. On iOS, the Swift layer is tested against the real core on Linux, and the app's tests are set to run on the iOS simulator in CI; nothing has run on Apple hardware outside CI.
