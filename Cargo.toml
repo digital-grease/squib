@@ -7,6 +7,7 @@ members = [
     "crates/training",
     "crates/storage",
     "crates/archive",
+    "crates/ballistics",
     "crates/mobile-api",
     "tools/replay",
     "tools/uniffi-bindgen",
@@ -26,6 +27,7 @@ squib-environment = { path = "crates/environment" }
 squib-training = { path = "crates/training" }
 squib-storage = { path = "crates/storage" }
 squib-archive = { path = "crates/archive" }
+squib-ballistics = { path = "crates/ballistics" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.11.0"

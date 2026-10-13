@@ -1,0 +1,355 @@
+{
+ "source": "Hornady published ammunition ballistics tables, retrieved 2026-10-13 from each product page (embedded page data). Hornady does not state the atmosphere or drag model on the page; the trajectory column gives the sight height (muzzle value) and the zero (the 0.0 entry). Published values are rounded: velocity to 1 fps, trajectory to 0.1 in.",
+ "products": [
+  {
+   "product": "223 Rem 55 gr V-MAX®",
+   "url": "https://www.hornady.com/ammunition/rifle/223-rem-55-gr-v-max",
+   "weight_gr": 55.0,
+   "g1_bc": 0.255,
+   "bc_label": "G1",
+   "g7_bc": null,
+   "muzzle_velocity_fps": 3240,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    3240.0,
+    2855.0,
+    2502.0,
+    2175.0,
+    1873.0,
+    1602.0
+   ],
+   "energy_ftlb": [
+    1282.0,
+    995.0,
+    764.0,
+    578.0,
+    429.0,
+    313.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.4,
+    0.0,
+    -7.0,
+    -21.4,
+    -45.8
+   ]
+  },
+  {
+   "product": "270 Win 130 gr SST® Superformance®",
+   "url": "https://www.hornady.com/ammunition/rifle/270-win-130-gr-sst-superformance",
+   "weight_gr": 130.0,
+   "g1_bc": 0.46,
+   "bc_label": "G1",
+   "g7_bc": null,
+   "muzzle_velocity_fps": 3200,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    3200.0,
+    2984.0,
+    2779.0,
+    2583.0,
+    2396.0,
+    2216.0
+   ],
+   "energy_ftlb": [
+    2956.0,
+    2570.0,
+    2229.0,
+    1926.0,
+    1656.0,
+    1417.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.2,
+    0.0,
+    -5.7,
+    -16.7,
+    -33.7
+   ]
+  },
+  {
+   "product": "30-06 Springfield 150 gr InterLock® SP American Whitetail®",
+   "url": "https://www.hornady.com/ammunition/rifle/30-06-springfield-150-gr-interlock-sp-american-whitetail",
+   "weight_gr": 150.0,
+   "g1_bc": 0.338,
+   "bc_label": "G1",
+   "g7_bc": null,
+   "muzzle_velocity_fps": 2910,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2910.0,
+    2637.0,
+    2381.0,
+    2139.0,
+    1911.0,
+    1700.0
+   ],
+   "energy_ftlb": [
+    2820.0,
+    2317.0,
+    1888.0,
+    1523.0,
+    1216.0,
+    963.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.8,
+    0.0,
+    -7.9,
+    -23.5,
+    -48.6
+   ]
+  },
+  {
+   "product": "300 PRC 225 gr ELD® Match",
+   "url": "https://www.hornady.com/ammunition/rifle/300-prc-225-gr-eld-match",
+   "weight_gr": 225.0,
+   "g1_bc": 0.777,
+   "bc_label": "G1",
+   "g7_bc": 0.391,
+   "muzzle_velocity_fps": 2810,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2810.0,
+    2692.0,
+    2577.0,
+    2465.0,
+    2356.0,
+    2250.0
+   ],
+   "energy_ftlb": [
+    3945.0,
+    3620.0,
+    3318.0,
+    3036.0,
+    2773.0,
+    2528.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.7,
+    0.0,
+    -6.9,
+    -19.5,
+    -39.4
+   ],
+   "excluded": [
+    {
+     "range_yd": 500,
+     "field": "trajectory_in",
+     "reason": "Inconsistent with its own column: the drop steps between ranges (-1.7, -6.9, -12.6, -19.9 in) grow by 5.2, 5.7 then 7.3 in, where the similar 300 Win Mag 195 gr ELD Match grows by 5.1, 5.7 then 6.5. The 500 yd velocity agrees with Squib to 1 fps and Squib's -38.4 in continues the trend; the published -39.4 looks like a typo. Left out of the comparison."
+    }
+   ]
+  },
+  {
+   "product": "300 Win Mag 195 gr ELD® Match",
+   "url": "https://www.hornady.com/ammunition/rifle/300-win-mag-195-gr-eld-match",
+   "weight_gr": 195.0,
+   "g1_bc": 0.584,
+   "bc_label": "G1",
+   "g7_bc": 0.292,
+   "muzzle_velocity_fps": 2930,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2930.0,
+    2769.0,
+    2615.0,
+    2465.0,
+    2321.0,
+    2181.0
+   ],
+   "energy_ftlb": [
+    3717.0,
+    3321.0,
+    2960.0,
+    2631.0,
+    2332.0,
+    2059.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.5,
+    0.0,
+    -6.6,
+    -18.9,
+    -37.7
+   ]
+  },
+  {
+   "product": "308 Win 168 gr ELD® Match",
+   "url": "https://www.hornady.com/ammunition/rifle/308-win-168-gr-eld-match",
+   "weight_gr": 168.0,
+   "g1_bc": 0.523,
+   "bc_label": "G1",
+   "g7_bc": 0.263,
+   "muzzle_velocity_fps": 2700,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2700.0,
+    2530.0,
+    2366.0,
+    2209.0,
+    2057.0,
+    1912.0
+   ],
+   "energy_ftlb": [
+    2719.0,
+    2388.0,
+    2089.0,
+    1820.0,
+    1579.0,
+    1364.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    2.0,
+    0.0,
+    -8.2,
+    -23.5,
+    -47.1
+   ]
+  },
+  {
+   "product": "6.5 Creedmoor 140 gr ELD® Match",
+   "url": "https://www.hornady.com/ammunition/rifle/6-5-creedmoor-140-gr-eld-match",
+   "weight_gr": 140.0,
+   "g1_bc": 0.646,
+   "bc_label": "G1",
+   "g7_bc": 0.326,
+   "muzzle_velocity_fps": 2710,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2710.0,
+    2564.0,
+    2422.0,
+    2285.0,
+    2152.0,
+    2023.0
+   ],
+   "energy_ftlb": [
+    2283.0,
+    2043.0,
+    1823.0,
+    1622.0,
+    1439.0,
+    1273.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.9,
+    0.0,
+    -7.8,
+    -22.3,
+    -44.4
+   ],
+   "excluded": [
+    {
+     "range_yd": "all",
+     "field": "all",
+     "reason": "The BC printed on the page (G1 0.646) does not reproduce the page's own table: velocities come out 8 to 35 fps faster. G1 0.610, found by trial, reproduces every value within the table's rounding, so the table appears to have been computed with a different BC than the one shown. Whether 0.610 was ever published was not verified. Left out of the comparison because its published inputs and outputs disagree."
+    }
+   ]
+  },
+  {
+   "product": "6mm Creedmoor 108 gr ELD® Match",
+   "url": "https://www.hornady.com/ammunition/rifle/6mm-creedmoor-108-gr-eld-match",
+   "weight_gr": 108.0,
+   "g1_bc": 0.536,
+   "bc_label": "G1",
+   "g7_bc": 0.27,
+   "muzzle_velocity_fps": 2960,
+   "test_barrel_in": 24,
+   "ranges_yd": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500
+   ],
+   "velocity_fps": [
+    2960.0,
+    2784.0,
+    2615.0,
+    2453.0,
+    2296.0,
+    2144.0
+   ],
+   "energy_ftlb": [
+    2101.0,
+    1859.0,
+    1640.0,
+    1443.0,
+    1264.0,
+    1103.0
+   ],
+   "trajectory_in": [
+    -1.5,
+    1.5,
+    0.0,
+    -6.6,
+    -19.0,
+    -38.0
+   ]
+  }
+ ]
+}

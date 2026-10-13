@@ -92,9 +92,11 @@ crates/environment/       range conditions: measurement candidates, NWS and META
 crates/training/          drill recipes, generic practice scoring, analytics, manual strings, round counts
 crates/storage/           SQLite repository, migrations, recovery, day plans and checklists
 crates/archive/           private backup/restore, CSV export, redacted result sharing
+crates/ballistics/        point-mass ballistics solver and its validation suite (experimental; not in the app yet)
 crates/mobile-api/        UniFFI engine (control plane), JNI PCM bridge (data plane), DSP and store actors
 tools/replay/             squib-replay: fixtures, replay, corpus evaluation, benchmark, stress study, diagnostic exports
 tools/uniffi-bindgen/     pinned binding generator
+testing/ballistics/       generator for the ballistics cross-solver reference data (development only)
 apps/android/             Kotlin + Jetpack Compose app
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
 fixtures/nws/             captured api.weather.gov responses (public domain) for adapter tests
