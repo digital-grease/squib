@@ -74,4 +74,8 @@ jobs:
           unzip -l "$apk" | grep -q "lib/arm64-v8a/libsquib_mobile.so"
           unzip -l "$apk" | grep -q "lib/x86_64/libsquib_mobile.so"
           ls -l "$apk"
+      - name: Third-party notices are current
+        # The About screen's licence notices are generated from the Rust and Android
+        # dependency graphs; a dependency change must regenerate them.
+        run: python3 scripts/third_party_notices.py --check
 

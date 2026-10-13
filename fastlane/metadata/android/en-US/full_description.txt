@@ -1,0 +1,30 @@
+Squib turns an Android phone into a practice timer for shooting sports. It works with nothing but the phone you already own: no account, no internet connection, and no extra equipment.
+
+<b>Par timer</b>
+Set a start delay (instant, fixed or random), add par times, and press Arm. The start and par cues can be beeps, vibration, or a signal on the screen. This mode never uses the microphone.
+
+<b>Shot timing (experimental)</b>
+The phone listens for its own start beep and for shots, then shows your first-shot time, splits and total. Shot timing has not yet been tested on real phones at a real range, so treat its times as experimental. Squib labels uncertain results and interrupted runs instead of guessing.
+
+<b>Review and correct</b>
+Keep or reject uncertain shots, add one the phone missed, or nudge a time. Corrections are saved as a new version; the original detections are never thrown away.
+
+<b>Drills, scoring and plans</b>
+Save your own drills or start from simple examples, share them as small files or QR codes, and score them with generic practice scoring (time only, points and hit factor, or time plus penalties). Plan a practice or match day with drills, stage notes, a checklist and a walkthrough countdown.
+
+<b>History</b>
+Every run is saved on the phone and grouped into visits. Summaries show medians and spread with how many runs were included. Separate shooter profiles let several people share one phone, and a coach can rotate shooters.
+
+<b>Range conditions</b>
+Temperature, humidity, wind and pressure from nearby US National Weather Service stations or airport reports anywhere, the phone's barometer, or values you enter. Each value shows where it came from and how old it is. Optional US terrain elevation, weather alerts, a heat index card, and density altitude from actual pressure.
+
+<b>Also</b>
+Optional video clips with shot markers, rounds and cost, target photos you mark yourself, entry of times from another timer, and a private backup you can restore on any phone.
+
+<b>Privacy</b>
+No account, no ads and no tracking. The internet is used only for weather and terrain lookups, each off until you turn it on. Audio is never sent anywhere and, by default, never saved.
+
+<b>Accessible</b>
+Large controls, text labels as well as colours, high-contrast themes, layouts that work at twice the text size, and full screen reader labels.
+
+Squib is free software under the GNU Affero General Public License v3.0 or later.

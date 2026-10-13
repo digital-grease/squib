@@ -1,0 +1,1 @@
+Practice shot timer that works offline: par times, shot timing, drills, history

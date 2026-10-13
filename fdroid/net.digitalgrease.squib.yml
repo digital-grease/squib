@@ -1,0 +1,40 @@
+# DRAFT for submission to F-Droid's fdroiddata repository (metadata/net.digitalgrease.squib.yml).
+# Not submitted. Before submitting: tag the release, run `fdroid lint` and `fdroid build` on it,
+# and settle the open points in fdroid/README.md. The store listing itself is read from
+# fastlane/metadata/android in this repository.
+Categories:
+  - Sports & Health
+License: AGPL-3.0-or-later
+AuthorName: digital-grease
+SourceCode: https://github.com/digital-grease/squib
+IssueTracker: https://github.com/digital-grease/squib/issues
+Donate: https://www.buymeacoffee.com/digitalgrease
+
+AutoName: Squib
+
+RepoType: git
+Repo: https://github.com/digital-grease/squib.git
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 100
+    commit: v0.1.0
+    subdir: apps/android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y build-essential
+    srclibs:
+      - rustup@1.28.2
+    prebuild:
+      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain 1.95.0 --target aarch64-linux-android,x86_64-linux-android
+      - $HOME/.cargo/bin/cargo install cargo-ndk --version 4.1.2 --locked
+    build:
+      - export PATH=$HOME/.cargo/bin:$PATH
+    gradle:
+      - yes
+    ndk: r28c
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.1.0
+CurrentVersionCode: 100

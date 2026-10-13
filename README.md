@@ -66,6 +66,8 @@ Support for one dedicated shot-timer accessory and phone or watch remote control
 
 Squib is free software, licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). You can use, study, change, and share it. If you distribute a modified version, or run one as a network service, you must share your source code under the same license.
 
+In the app, History › Data and backup › About shows the version, the full license, a link to this source code, the licenses of the libraries Squib is built on, and a way to support development.
+
 ---
 
 ## Technical details
@@ -98,7 +100,9 @@ fixtures/nws/             captured api.weather.gov responses (public domain) for
 fixtures/metar/           captured aviationweather.gov METAR responses (public domain) for adapter tests
 fixtures/epqs/            captured USGS elevation responses (public domain) for terrain tests
 testing/                  dependency-free mutation fuzzer shared by the parser robustness tests
-scripts/                  Android core build, emulator UI driver
+scripts/                  Android core build, emulator UI driver, third-party notices generator
+fastlane/                 F-Droid store listing (descriptions, changelogs)
+fdroid/                   draft F-Droid build recipe and open packaging points (not submitted)
 .github/                  CI workflow and issue forms (used by the in-app problem report)
 ```
 
@@ -142,6 +146,8 @@ cd apps/android
 ```
 
 Signing material never enters the repository. To sign, either create `apps/android/keystore.properties` (git-ignored) with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`, or set `SQUIB_KEYSTORE`, `SQUIB_KEYSTORE_PASSWORD`, `SQUIB_KEY_ALIAS` and `SQUIB_KEY_PASSWORD`. Without either, the build produces `app-release-unsigned.apk`, as CI does.
+
+The About screen's third-party licence notices (`app/src/main/assets/third_party_notices.json`) are generated from the Rust and Android dependency graphs: after changing a dependency, run `python3 scripts/third_party_notices.py` (CI fails while they are out of date).
 
 The version is set once, as `squibVersion` (`MAJOR.MINOR.PATCH`) in `apps/android/app/build.gradle.kts`; the version code is derived from it (`MAJOR*10000 + MINOR*100 + PATCH`), so a source build always gets the same code. The R8 mapping for each release build is in `app/build/outputs/mapping/release/mapping.txt`.
 
