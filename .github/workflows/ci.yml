@@ -36,7 +36,7 @@ jobs:
           ./target/release/squib-replay corpus fixtures/synthetic
 
   android:
-    name: Android debug build
+    name: Android debug and release builds
     runs-on: ubuntu-latest
     needs: core
     steps:
@@ -61,3 +61,17 @@ jobs:
         working-directory: apps/android
         # scripts/build-android-core.sh resolves the pinned NDK under $ANDROID_HOME.
         run: ./gradlew :app:assembleDebug
+      - name: Assemble minified release APK (unsigned)
+        working-directory: apps/android
+        # R8 with the keep rules in app/proguard-rules.pro. No signing material exists in CI,
+        # so the APK is unsigned; it is checked, not uploaded (distribution needs separate
+        # authorization).
+        run: |
+          ./gradlew :app:assembleRelease
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f "$apk"
+          test -s app/build/outputs/mapping/release/mapping.txt
+          unzip -l "$apk" | grep -q "lib/arm64-v8a/libsquib_mobile.so"
+          unzip -l "$apk" | grep -q "lib/x86_64/libsquib_mobile.so"
+          ls -l "$apk"
+

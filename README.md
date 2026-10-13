@@ -134,6 +134,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 `-PsquibSkipRust=true` reuses previously built native libraries. `-PsquibRustProfile=debug` builds the core unoptimized.
 
+### Release build
+
+```sh
+cd apps/android
+./gradlew :app:assembleRelease    # minified with R8; unsigned unless signing is configured
+```
+
+Signing material never enters the repository. To sign, either create `apps/android/keystore.properties` (git-ignored) with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`, or set `SQUIB_KEYSTORE`, `SQUIB_KEYSTORE_PASSWORD`, `SQUIB_KEY_ALIAS` and `SQUIB_KEY_PASSWORD`. Without either, the build produces `app-release-unsigned.apk`, as CI does.
+
+The version is set once, as `squibVersion` (`MAJOR.MINOR.PATCH`) in `apps/android/app/build.gradle.kts`; the version code is derived from it (`MAJOR*10000 + MINOR*100 + PATCH`), so a source build always gets the same code. The R8 mapping for each release build is in `app/build/outputs/mapping/release/mapping.txt`.
+
+To run the instrumented suite against the minified build on an emulator (local testing only; the debug key makes it installable):
+
+```sh
+./gradlew -PsquibTestBuildType=release -PsquibSignReleaseWithDebugKey=true :app:connectedReleaseAndroidTest
+```
+
 ### Evidence so far
 
 Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come.
