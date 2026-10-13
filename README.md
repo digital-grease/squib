@@ -96,6 +96,8 @@ apps/android/             Kotlin + Jetpack Compose app
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
 fixtures/nws/             captured api.weather.gov responses (public domain) for adapter tests
 fixtures/metar/           captured aviationweather.gov METAR responses (public domain) for adapter tests
+fixtures/epqs/            captured USGS elevation responses (public domain) for terrain tests
+testing/                  dependency-free mutation fuzzer shared by the parser robustness tests
 scripts/                  Android core build, emulator UI driver
 .github/                  CI workflow and issue forms (used by the in-app problem report)
 ```
@@ -110,6 +112,8 @@ Rust 1.95.0 with the `aarch64-linux-android` and `x86_64-linux-android` targets,
 # Shared core
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+# Parser robustness: a short fuzz run is part of cargo test; this is a longer one
+SQUIB_FUZZ_ITERS=20000 SQUIB_FUZZ_SEED=12345 cargo test --release --workspace robust
 
 # Replay tool
 cargo build --release -p squib-replay

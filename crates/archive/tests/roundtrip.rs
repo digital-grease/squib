@@ -670,3 +670,287 @@ fn attachment_rows_with_traversal_paths_are_rejected() {
     assert!(dst.list_attachments(None).unwrap().is_empty());
     assert!(!squib_storage::valid_attachment_path("../x") && squib_storage::valid_attachment_path("photos/a.jpg"));
 }
+
+// ---- Plan 5.2: hostile-input robustness (see testing/mutate.rs for run control) --------
+
+#[path = "../../../testing/mutate.rs"]
+mod mutate;
+
+use mutate::{JSON_TOKENS, Rng, fuzz, iterations, mutate};
+
+/// Every table's rows, in a stable order: equal fingerprints mean an unchanged journal.
+fn fingerprint(repo: &mut Repository) -> String {
+    let c = repo.connection();
+    let tables: Vec<String> = c
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    let mut out = String::new();
+    for t in tables {
+        let mut st = c.prepare(&format!("SELECT * FROM \"{t}\" ORDER BY 1")).unwrap();
+        let n = st.column_count();
+        let mut rows = st.query([]).unwrap();
+        out.push_str(&t);
+        while let Some(r) = rows.next().unwrap() {
+            for i in 0..n {
+                out.push_str(&format!("|{:?}", r.get_ref(i).unwrap()));
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn files_under(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = vec![];
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push((p.clone(), std::fs::read(&p).unwrap()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+fn zip_entries(path: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut za = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    (0..za.len())
+        .map(|i| {
+            let mut f = za.by_index(i).unwrap();
+            let mut b = vec![];
+            std::io::Read::read_to_end(&mut f, &mut b).unwrap();
+            (f.name().to_string(), b)
+        })
+        .collect()
+}
+
+fn write_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
+    let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (n, b) in entries {
+        z.start_file(n.as_str(), o).unwrap();
+        z.write_all(b).unwrap();
+    }
+    z.finish().unwrap();
+}
+
+/// A destination journal with data of its own, restorable between iterations.
+struct Dest {
+    dir: PathBuf,
+    pristine_db: Vec<u8>,
+    repo: Repository,
+    before: String,
+    att_before: Vec<(PathBuf, Vec<u8>)>,
+    /// Outcome counts, printed with --nocapture to show how deep the inputs reach.
+    outcomes: std::collections::BTreeMap<String, usize>,
+}
+
+impl Dest {
+    fn new(dir: &Path) -> Self {
+        let db = dir.join("dst.db");
+        let repo = Repository::open(&db).unwrap();
+        repo.ensure_default_shooter(1).unwrap();
+        repo.add_place(&SavedPlace { id: "mine".into(), label: "My range".into(), lat: 1.0, lon: 2.0, created_utc_ms: 1 })
+            .unwrap();
+        std::fs::create_dir_all(dir.join("att/photos")).unwrap();
+        std::fs::write(dir.join("att/photos/mine.jpg"), b"mine").unwrap();
+        drop(repo);
+        let pristine_db = std::fs::read(&db).unwrap();
+        let mut repo = Repository::open(&db).unwrap();
+        let before = fingerprint(&mut repo);
+        let att_before = files_under(&dir.join("att"));
+        Self { dir: dir.to_path_buf(), pristine_db, repo, before, att_before, outcomes: Default::default() }
+    }
+
+    /// Import, then check all-or-nothing: a refused archive leaves journal and files untouched.
+    fn check(&mut self, archive: &Path, copy: bool) -> std::result::Result<(), String> {
+        let att = self.dir.join("att");
+        let r = if copy {
+            import_copy(&mut self.repo, archive, &self.dir, Some(&att), &Limits::default(), 7)
+        } else {
+            import(&mut self.repo, archive, &self.dir, Some(&att), &Limits::default())
+        };
+        let kind = match &r {
+            Ok(_) => "accepted".to_string(),
+            Err(e) => format!("{e:?}").split(['(', ' ', '{']).next().unwrap_or("").to_string(),
+        };
+        *self.outcomes.entry(kind).or_default() += 1;
+        match r {
+            Err(_) => {
+                if fingerprint(&mut self.repo) != self.before {
+                    return Err("refused import changed the journal".into());
+                }
+                if files_under(&att) != self.att_before {
+                    return Err("refused import changed attachment files".into());
+                }
+                Ok(())
+            }
+            Ok(_) => {
+                // Accepted: the journal stays consistent and our own data survives.
+                let c = self.repo.connection();
+                let ok: String = c.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
+                let fk: i64 = c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+                if ok != "ok" || fk != 0 {
+                    return Err(format!("accepted import left the journal inconsistent: {ok}, {fk} foreign key errors"));
+                }
+                if !self.repo.list_places().unwrap().iter().any(|p| p.id == "mine" && p.label == "My range") {
+                    return Err("accepted import changed local data".into());
+                }
+                if std::fs::read(att.join("photos/mine.jpg")).ok().as_deref() != Some(b"mine".as_slice()) {
+                    return Err("accepted import overwrote a local file".into());
+                }
+                self.reset();
+                Ok(())
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        let db = self.dir.join("dst.db");
+        let _ = std::fs::remove_dir_all(self.dir.join("att"));
+        std::fs::create_dir_all(self.dir.join("att/photos")).unwrap();
+        std::fs::write(self.dir.join("att/photos/mine.jpg"), b"mine").unwrap();
+        // Swap in a throwaway handle so the destination file is closed before it is replaced.
+        self.repo = Repository::open(&self.dir.join("unused.db")).unwrap();
+        for ext in ["db-wal", "db-shm"] {
+            let _ = std::fs::remove_file(db.with_extension(ext));
+        }
+        std::fs::write(&db, &self.pristine_db).unwrap();
+        self.repo = Repository::open(&db).unwrap();
+    }
+}
+
+fn exported(d: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut src = build(&d.join("src.db"), &d.join("src-att"));
+    let good = d.join("good.zip");
+    export_private(
+        &mut src,
+        &good,
+        &ExportOptions {
+            app_version: "test".into(),
+            created_utc_ms: 99,
+            attachment_root: Some(d.join("src-att")),
+            include_media: true,
+            include_diagnostic_audio: true,
+        },
+    )
+    .unwrap();
+    zip_entries(&good)
+}
+
+/// One entry's content is mutated and the archive rebuilt with matching hashes, so the
+/// input gets past the inventory checks into row validation, staging and merge.
+#[test]
+fn robust_backup_import_with_consistent_inventory() {
+    let d = dir("fuzz-structured");
+    let entries = exported(&d);
+    let mut dest = Dest::new(&d);
+    let mut rng = Rng::new(mutate::base_seed());
+    let data: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].0 != "manifest.json").collect();
+    let p = d.join("case.zip");
+    // Seeds are indexes into `data`; the mutation is applied to the chosen entry.
+    let seeds: Vec<Vec<u8>> = data.iter().map(|i| i.to_le_bytes().to_vec()).collect();
+    let mut n = 0usize;
+    fuzz("backup entry", &seeds, &[], iterations(80), std::time::Duration::from_secs(10), |_| {
+        n += 1;
+        let target = data[rng.below(data.len())];
+        let mut e = entries.clone();
+        e[target].1 = mutate(&mut rng, &e[target].1, JSON_TOKENS);
+        let listed: Vec<(&str, Vec<u8>)> =
+            e.iter().filter(|(n, _)| n != "manifest.json").map(|(n, b)| (n.as_str(), b.clone())).collect();
+        craft(&p, &listed, SCHEMA_VERSION, None);
+        dest.check(&p, n.is_multiple_of(4)).map_err(|m| format!("{m} (mutated {})", e[target].0))
+    });
+    eprintln!("backup entry outcomes: {:?}", dest.outcomes);
+}
+
+/// The manifest is mutated (everything else intact), and the raw zip bytes are mutated.
+#[test]
+fn robust_backup_import_manifest_and_container() {
+    let d = dir("fuzz-raw");
+    let entries = exported(&d);
+    let mut dest = Dest::new(&d);
+    let mi = entries.iter().position(|(n, _)| n == "manifest.json").unwrap();
+    let p = d.join("case.zip");
+    fuzz("backup manifest", &[entries[mi].1.clone()], JSON_TOKENS, iterations(60), std::time::Duration::from_secs(10), |m| {
+        let mut e = entries.clone();
+        e[mi].1 = m.to_vec();
+        write_zip(&p, &e);
+        dest.check(&p, false)
+    });
+    write_zip(&d.join("whole.zip"), &entries);
+    let whole = std::fs::read(d.join("whole.zip")).unwrap();
+    fuzz(
+        "backup zip bytes",
+        &[whole],
+        &[b"PK\x03\x04", b"PK\x01\x02", b"PK\x05\x06", b"\xff\xff\xff\xff"],
+        iterations(60),
+        std::time::Duration::from_secs(10),
+        |b| {
+            std::fs::write(&p, b).unwrap();
+            dest.check(&p, false)
+        },
+    );
+    eprintln!("backup manifest and zip outcomes: {:?}", dest.outcomes);
+}
+
+#[test]
+fn robust_diagnostic_export_reader() {
+    let d = dir("fuzz-diag");
+    let src = build(&d.join("src.db"), &d.join("att"));
+    let out = d.join("diag.zip");
+    squib_archive::diagnostic::export_diagnostic(
+        &src,
+        "live-1",
+        &out,
+        &squib_archive::diagnostic::DiagnosticExportOptions {
+            export_id: "x".into(),
+            app_version: "t".into(),
+            core_versions: vec![],
+            created_day: "2026-10-11".into(),
+            consent_confirmed: true,
+            attachment_root: &d.join("att"),
+        },
+    )
+    .unwrap();
+    squib_archive::diagnostic::read_diagnostic(&out).expect("seed reads back");
+    let entries = zip_entries(&out);
+    let p = d.join("case.zip");
+    let mut rng = Rng::new(mutate::base_seed() ^ 0xd1a6);
+    let seeds: Vec<Vec<u8>> = vec![vec![0]];
+    fuzz("diagnostic entry", &seeds, &[], iterations(300), std::time::Duration::from_secs(2), |_| {
+        let mut e = entries.clone();
+        let i = rng.below(e.len());
+        e[i].1 = mutate(&mut rng, &e[i].1, JSON_TOKENS);
+        if rng.chance(8) {
+            e.remove(rng.below(e.len()));
+        }
+        write_zip(&p, &e);
+        let _ = squib_archive::diagnostic::read_diagnostic(&p);
+        Ok(())
+    });
+    write_zip(&d.join("whole.zip"), &entries);
+    let whole = std::fs::read(d.join("whole.zip")).unwrap();
+    fuzz(
+        "diagnostic zip bytes",
+        &[whole],
+        &[b"PK\x03\x04", b"\xff\xff\xff\xff"],
+        iterations(300),
+        std::time::Duration::from_secs(2),
+        |b| {
+            std::fs::write(&p, b).unwrap();
+            let _ = squib_archive::diagnostic::read_diagnostic(&p);
+            Ok(())
+        },
+    );
+}
