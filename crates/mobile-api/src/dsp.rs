@@ -35,6 +35,8 @@ pub enum WorkerMode {
 pub enum WorkerCmd {
     RequestCue(CueRequest),
     Finish,
+    /// Testing aid: panic on the worker thread (panic containment tests).
+    Panic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -98,6 +100,8 @@ pub struct DspWorker {
     pub out_rx: Receiver<WorkerOut>,
     thread: Option<JoinHandle<()>>,
     pub control_overflow: Arc<AtomicBool>,
+    /// Set when the worker stopped on a panic; the engine interrupts the run.
+    pub failed: Arc<AtomicBool>,
     pub stats: Arc<Mutex<ProcStats>>,
     /// Frames processed with all resulting events already sent (diagnostics/tests).
     pub published_end: Arc<AtomicI64>,
@@ -125,15 +129,29 @@ impl DspWorker {
         let st = stats.clone();
         let published_end = Arc::new(AtomicI64::new(0));
         let pe = published_end.clone();
+        let failed = Arc::new(AtomicBool::new(false));
+        let fl = failed.clone();
         let thread = std::thread::Builder::new()
             .name("squib-dsp".into())
-            .spawn(move || run_worker(fmt, detector, q, mode, cmd_rx, out_tx, ov, st, pe, tap))
+            .spawn(move || {
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_worker(fmt, detector, q, mode, cmd_rx, out_tx, ov, st, pe, tap)
+                }));
+                if r.is_err() {
+                    fl.store(true, Ordering::Release);
+                }
+            })
             .expect("spawn dsp thread");
-        Self { queue, cmd_tx, out_rx, thread: Some(thread), control_overflow, stats, published_end }
+        Self { queue, cmd_tx, out_rx, thread: Some(thread), control_overflow, failed, stats, published_end }
     }
 
     pub fn request_cue(&self, r: CueRequest) {
         let _ = self.cmd_tx.send(WorkerCmd::RequestCue(r));
+        self.wake();
+    }
+
+    pub fn inject_panic(&self) {
+        let _ = self.cmd_tx.send(WorkerCmd::Panic);
         self.wake();
     }
 
@@ -204,6 +222,7 @@ fn run_worker(
             match cmd {
                 WorkerCmd::RequestCue(r) => p.request_cue(r, &mut |e| send(WorkerOut::Dsp(e))),
                 WorkerCmd::Finish => finishing = true,
+                WorkerCmd::Panic => panic!("injected panic on the analysis thread"),
             }
         }
         if !overflow_reported && queue.take_overflow() {

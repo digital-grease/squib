@@ -69,6 +69,7 @@ struct Capture {
     summary: Option<PipelineSummary>,
     stop_requested: bool,
     overflow_reported: bool,
+    failure_reported: bool,
 }
 
 impl Capture {
@@ -320,6 +321,17 @@ impl SquibEngine {
                 cap.overflow_reported = true;
                 inputs.push(Input::Quality {
                     event: QualityEvent::new(QualityKind::ControlQueueOverflow, Severity::Integrity, "DSP output queue full"),
+                    now_ns,
+                });
+            }
+            if cap.worker.failed.load(std::sync::atomic::Ordering::Acquire) && !cap.failure_reported {
+                cap.failure_reported = true;
+                inputs.push(Input::Quality {
+                    event: QualityEvent::new(
+                        QualityKind::ProcessingFailed,
+                        Severity::Integrity,
+                        "audio analysis stopped on an internal error",
+                    ),
                     now_ns,
                 });
             }
@@ -1082,6 +1094,7 @@ impl SquibEngine {
             summary: None,
             stop_requested: false,
             overflow_reported: false,
+            failure_reported: false,
         });
         Ok(handle)
     }
@@ -1381,6 +1394,27 @@ impl SquibEngine {
     /// Testing aid: fail the next `count` storage writes (A08 / storage-failure flows).
     pub fn debug_inject_storage_faults(&self, count: u32) {
         self.store.send(StoreCmd::InjectFaults(count));
+    }
+
+    /// Testing aid for panic containment (plan 5.3): `call` panics in this call while the
+    /// engine lock is held, `store` panics on the writer thread, `dsp` panics the current
+    /// capture's analysis thread. Each must leave the engine usable.
+    pub fn debug_inject_panic(&self, target: String) {
+        match target.as_str() {
+            "call" => {
+                let _g = self.lock();
+                panic!("injected panic in an engine call");
+            }
+            "store" => {
+                let _ = self.store.exec(|_| -> squib_storage::Result<()> { panic!("injected panic on the writer thread") });
+            }
+            "dsp" => {
+                if let Some(c) = self.lock().capture.as_ref() {
+                    c.worker.inject_panic();
+                }
+            }
+            _ => {}
+        }
     }
 }
 

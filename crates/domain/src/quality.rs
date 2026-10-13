@@ -65,6 +65,8 @@ pub enum QualityKind {
     RouteUnqualified,
     /// The opt-in diagnostic recording could not be started; timing is unaffected.
     DiagnosticRecordingFailed,
+    /// The audio analysis thread stopped on an internal error.
+    ProcessingFailed,
 }
 
 impl QualityKind {
@@ -100,6 +102,7 @@ impl QualityKind {
             QualityKind::ProcessTerminated => "process_terminated",
             QualityKind::RouteUnqualified => "route_unqualified",
             QualityKind::DiagnosticRecordingFailed => "diagnostic_recording_failed",
+            QualityKind::ProcessingFailed => "processing_failed",
         }
     }
 
@@ -135,6 +138,7 @@ impl QualityKind {
             QualityKind::ProcessTerminated => "App closed during run",
             QualityKind::RouteUnqualified => "Route not qualified",
             QualityKind::DiagnosticRecordingFailed => "Diagnostic recording failed",
+            QualityKind::ProcessingFailed => "Audio analysis stopped",
         }
     }
 }
