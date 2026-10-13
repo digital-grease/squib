@@ -99,6 +99,7 @@ tools/replay/             squib-replay: fixtures, replay, corpus evaluation, ben
 tools/uniffi-bindgen/     pinned binding generator
 testing/ballistics/       generators for the ballistics cross-solver reference data (development only)
 apps/android/             Kotlin + Jetpack Compose app
+apps/ios/                 iOS, best effort: Swift bindings and the par-timer model (SquibKit); see scripts/build-ios-core.sh
 fixtures/synthetic/       golden synthetic WAV + label fixtures with SHA-256 manifest
 fixtures/nws/             captured api.weather.gov responses (public domain) for adapter tests
 fixtures/metar/           captured aviationweather.gov METAR responses (public domain) for adapter tests

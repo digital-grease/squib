@@ -15,3 +15,11 @@ apps/android/app/src/main/generated/
 *.db-shm
 /out/
 /docs/
+# iOS (ADR-065): generated bindings, the core's XCFramework, Swift and Xcode build output.
+apps/ios/Generated/
+apps/ios/Sources/SquibCore/squib_mobile.swift
+apps/ios/.build/
+apps/ios/.build-linux/
+apps/ios/.swiftpm/
+apps/ios/Squib.xcodeproj/
+apps/ios/DerivedData/
