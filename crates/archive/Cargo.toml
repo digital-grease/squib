@@ -25,3 +25,4 @@ age.workspace = true
 
 [dev-dependencies]
 squib-timing.workspace = true
+squib-ballistics.workspace = true

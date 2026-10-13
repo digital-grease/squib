@@ -145,8 +145,8 @@ fn check(ok: bool, what: &str) -> Result<()> {
     if ok { Ok(()) } else { Err(BallisticsError::Input(what.into())) }
 }
 
-pub fn validate(shot: &Shot, ranges_m: &[f64]) -> Result<()> {
-    let l = &shot.load;
+/// Whether a load is inside the solver's accepted ranges.
+pub fn validate_load(l: &Load) -> Result<()> {
     let finite = |x: f64| x.is_finite();
     check(finite(l.bc_lb_in2) && (0.02..=2.0).contains(&l.bc_lb_in2), "ballistic coefficient must be 0.02 to 2.0 lb/in²")?;
     check(finite(l.mass_kg) && (0.000_1..=0.2).contains(&l.mass_kg), "bullet weight must be 0.1 to 200 g")?;
@@ -156,6 +156,12 @@ pub fn validate(shot: &Shot, ranges_m: &[f64]) -> Result<()> {
     )?;
     check(finite(l.sight_height_m) && (0.0..=0.3).contains(&l.sight_height_m), "sight height must be 0 to 30 cm")?;
     check(finite(l.zero_range_m) && (5.0..=1000.0).contains(&l.zero_range_m), "zero range must be 5 to 1000 m")?;
+    Ok(())
+}
+
+pub fn validate(shot: &Shot, ranges_m: &[f64]) -> Result<()> {
+    let finite = |x: f64| x.is_finite();
+    validate_load(&shot.load)?;
     for a in std::iter::once(&shot.air).chain(shot.zero_air.as_ref()) {
         check(finite(a.density_kg_m3) && (0.4..=1.6).contains(&a.density_kg_m3), "air density must be 0.4 to 1.6 kg/m³")?;
         check(finite(a.temperature_k) && (220.0..=330.0).contains(&a.temperature_k), "temperature must be -53 to 57 °C")?;

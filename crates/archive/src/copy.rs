@@ -5,8 +5,8 @@
 //!
 //! - Journal records always get new ids: sessions, runs and everything under them,
 //!   capture epochs, conditions snapshots, attachments (with new file paths), day plans,
-//!   their items and checklists, and saved places.
-//! - Reference data (drills, equipment, calibration profiles) keeps its id unless the
+//!   their items and checklists, saved places, and saved range cards.
+//! - Reference data (drills, equipment, loads, calibration profiles) keeps its id unless the
 //!   same id exists locally with different content; then it is copied too.
 //! - Shooter profiles, settings, overrides, and the checklist template are never
 //!   remapped: a copy lands under the existing profiles.
@@ -39,6 +39,7 @@ const ALWAYS: &[(&str, &str)] = &[
     ("day_plan", "id"),
     ("plan_item", "id"),
     ("saved_place", "id"),
+    ("ballistic_card", "id"),
 ];
 
 /// (entity table, id column, optional (version table, its id column)).
@@ -48,6 +49,7 @@ type ReferenceTable = (&'static str, &'static str, Option<(&'static str, &'stati
 const REFERENCE: &[ReferenceTable] = &[
     ("drill", "id", Some(("drill_version", "drill_id"))),
     ("equipment", "id", Some(("equipment_version", "equipment_id"))),
+    ("load", "id", Some(("load_version", "load_id"))),
     ("calibration_profile_version", "id", None),
 ];
 

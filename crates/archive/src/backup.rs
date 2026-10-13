@@ -36,6 +36,9 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("drill_version", &["drill_id", "version"], Merge::Exact),
     ("equipment", &["id"], Merge::KeepLocal),
     ("equipment_version", &["equipment_id", "version"], Merge::Exact),
+    // Loads are labels like equipment; their versions and saved range cards are immutable.
+    ("load", &["id"], Merge::KeepLocal),
+    ("load_version", &["load_id", "version"], Merge::Exact),
     ("run", &["id"], Merge::Exact),
     ("capture_epoch", &["id"], Merge::Exact),
     ("cue_observation", &["run_id", "cue_id"], Merge::Exact),
@@ -56,6 +59,7 @@ const TABLES: &[(&str, &[&str], Merge)] = &[
     ("plan_run", &["item_id", "run_id"], Merge::Exact),
     ("checklist_item", &["id"], Merge::KeepLocal),
     ("saved_place", &["id"], Merge::Exact),
+    ("ballistic_card", &["id"], Merge::Exact),
     ("import_provenance", &["entity", "new_id"], Merge::Exact),
     ("env_override", &["field"], Merge::KeepLocal),
     ("app_setting", &["key"], Merge::KeepLocal),

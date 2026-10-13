@@ -7,6 +7,7 @@
 //!   against the JNI path (M0 task 6); the app does not use it.
 
 pub mod annotations_api;
+pub mod ballistics_api;
 pub mod compat_api;
 pub mod conditions;
 pub mod diag;

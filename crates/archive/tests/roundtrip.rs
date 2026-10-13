@@ -198,7 +198,7 @@ fn build(path: &Path, att_root: &Path) -> Repository {
     repo.insert_manual_run(
         &RunIntent {
             run_id: "manual-1".into(),
-            session_id: s,
+            session_id: s.clone(),
             created_utc_ms: 20,
             tz_offset_min: -300,
             config: cfg(SourceMode::ManualEntry, None, None),
@@ -310,7 +310,67 @@ fn build(path: &Path, att_root: &Path) -> Repository {
         created_utc_ms: 18,
     })
     .unwrap();
+    // A rifle with a load in two versions, and a range card made with version 2.
+    repo.save_equipment_version(&EquipmentVersion {
+        equipment_id: "rifle-1".into(),
+        version: 1,
+        name: "Bolt gun".into(),
+        category: "rifle".into(),
+        notes: String::new(),
+        created_utc_ms: 19,
+    })
+    .unwrap();
+    for (v, mv) in [(1u32, 790.0), (2, 795.5)] {
+        repo.save_load_version(&test_load(v, mv)).unwrap();
+    }
+    let card_snap = repo.insert_snapshot(&station_snapshot("env-card"), LocationRetention::Precise).unwrap();
+    repo.save_ballistic_card(&test_card("card-1", &test_load(2, 795.5), Some(card_snap.id), Some(s.clone()))).unwrap();
     repo
+}
+
+fn test_load(version: u32, mv: f64) -> LoadVersion {
+    LoadVersion {
+        load_id: "load-1".into(),
+        version,
+        name: "175 SMK".into(),
+        equipment_id: Some("rifle-1".into()),
+        load: squib_ballistics::Load {
+            model: squib_ballistics::DragModel::G7,
+            bc_lb_in2: 0.243,
+            mass_kg: 0.011_34,
+            muzzle_velocity_mps: mv,
+            sight_height_m: 0.038,
+            zero_range_m: 100.0,
+        },
+        bullet_diameter_m: Some(0.007_82),
+        bullet_length_m: None,
+        twist_m: Some(0.254),
+        notes: "=cmd|' /C calc'!A0".into(),
+        created_utc_ms: 20 + version as i64,
+    }
+}
+
+fn test_card(id: &str, lv: &LoadVersion, snapshot: Option<String>, session: Option<String>) -> BallisticCard {
+    let shot = squib_ballistics::Shot {
+        load: lv.load.clone(),
+        air: squib_ballistics::Atmosphere::from_station(95_000.0, 12.0, 0.4),
+        zero_air: None,
+        wind: Some(squib_ballistics::Wind { speed_mps: 3.0, from_deg: 90.0 }),
+        look_angle_deg: 0.0,
+    };
+    let ranges = vec![100.0, 300.0, 500.0];
+    let result = squib_ballistics::solve(&shot, &ranges).unwrap();
+    BallisticCard {
+        id: id.into(),
+        load_id: lv.load_id.clone(),
+        load_version: lv.version,
+        environment_snapshot_id: snapshot,
+        session_id: session,
+        title: "Club range".into(),
+        inputs: CardInputs { shot, ranges_m: ranges },
+        result,
+        created_utc_ms: 30,
+    }
 }
 
 fn export(repo: &mut Repository, out: &Path, att: Option<&Path>) -> ExportSummary {
@@ -379,6 +439,8 @@ fn a17_full_round_trip_preserves_observations_edits_provenance_and_attachments()
     assert_eq!(dst.plan_items("plan-1").unwrap(), src.plan_items("plan-1").unwrap());
     assert_eq!(dst.item_progress("item-1").unwrap().completed, 1);
     assert_eq!(dst.checklist(Some("plan-1")).unwrap(), src.checklist(Some("plan-1")).unwrap());
+    assert_eq!(dst.load_history("load-1").unwrap(), src.load_history("load-1").unwrap(), "every load version");
+    assert_eq!(dst.list_ballistic_cards(10).unwrap(), src.list_ballistic_cards(10).unwrap(), "range cards exactly");
 
     // Importing the same backup again changes nothing.
     let again = import(&mut dst, &zip, &d, Some(&att_b), &Limits::default()).unwrap();
@@ -496,6 +558,25 @@ fn import_as_copy_keeps_both_with_new_ids_and_provenance() {
     let new_manual = prov.iter().find(|p| p.0 == "run" && p.2 == "manual-1").map(|p| p.1.clone()).unwrap();
     let new_item = prov.iter().find(|p| p.0 == "plan_item" && p.2 == "item-1").map(|p| p.1.clone()).unwrap();
     assert_eq!(dst.item_run_ids(&new_item).unwrap(), vec![new_manual]);
+
+    // Range cards are journal records: copied with new ids, their session and snapshot
+    // links following the copies. The unchanged load keeps its id and is not duplicated.
+    let cards = dst.list_ballistic_cards(10).unwrap();
+    assert_eq!(cards.len(), 2);
+    let new_card = prov.iter().find(|p| p.0 == "ballistic_card" && p.2 == "card-1").map(|p| p.1.clone()).unwrap();
+    let copied = dst.ballistic_card(&new_card).unwrap().unwrap();
+    let orig = src.ballistic_card("card-1").unwrap().unwrap();
+    assert_eq!((copied.inputs.clone(), copied.result.clone()), (orig.inputs.clone(), orig.result.clone()), "card content exact");
+    assert_eq!((copied.load_id.as_str(), copied.load_version), ("load-1", 2));
+    assert_ne!(copied.session_id, orig.session_id);
+    assert_ne!(copied.environment_snapshot_id, orig.environment_snapshot_id);
+    let session_exists: i64 = dst
+        .connection()
+        .query_row("SELECT count(*) FROM session WHERE id = ?1", [copied.session_id.clone().unwrap()], |r| r.get(0))
+        .unwrap();
+    assert_eq!(session_exists, 1, "points at the copied session");
+    assert_eq!(dst.list_loads().unwrap().len(), 1);
+    assert_eq!(dst.load_history("load-1").unwrap().len(), 2);
 }
 
 /// Write a zip from (name, bytes) pairs plus a manifest listing `listed`.

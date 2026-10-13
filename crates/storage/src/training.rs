@@ -47,6 +47,8 @@ pub struct AttachmentRecord {
 pub struct DeletionReport {
     pub runs: u32,
     pub attachment_paths: Vec<String>,
+    /// Saved range cards removed with a visit or with all history.
+    pub cards: u32,
 }
 
 pub const MANUAL_EDITOR: &str = "manual-entry";
@@ -382,7 +384,8 @@ impl Repository {
             report.runs += tx.execute("DELETE FROM run WHERE id = ?1", params![id])? as u32;
             if let Some(s) = snapshot {
                 tx.execute(
-                    "DELETE FROM environment_snapshot WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM run WHERE environment_snapshot_id = ?1)",
+                    "DELETE FROM environment_snapshot WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM run WHERE environment_snapshot_id = ?1)
+                       AND NOT EXISTS (SELECT 1 FROM ballistic_card WHERE environment_snapshot_id = ?1)",
                     params![s],
                 )?;
             }
@@ -390,7 +393,10 @@ impl Repository {
         Ok(())
     }
 
-    fn with_guard(&mut self, f: impl FnOnce(&Transaction<'_>, &mut DeletionReport) -> Result<()>) -> Result<DeletionReport> {
+    pub(crate) fn with_guard(
+        &mut self,
+        f: impl FnOnce(&Transaction<'_>, &mut DeletionReport) -> Result<()>,
+    ) -> Result<DeletionReport> {
         let tx = self.conn.transaction()?;
         tx.execute("INSERT INTO deletion_guard(token) VALUES ('active')", [])?;
         let mut report = DeletionReport::default();
@@ -415,12 +421,25 @@ impl Repository {
         let sid = session_id.to_string();
         self.with_guard(move |tx, rep| {
             Self::delete_runs_tx(tx, &ids, rep)?;
+            // Range cards saved during the visit go with it.
+            let snapshots: Vec<String> = {
+                let mut st = tx.prepare("SELECT DISTINCT environment_snapshot_id FROM ballistic_card WHERE session_id = ?1 AND environment_snapshot_id IS NOT NULL")?;
+                st.query_map(params![sid], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?
+            };
+            rep.cards += tx.execute("DELETE FROM ballistic_card WHERE session_id = ?1", params![sid])? as u32;
+            for s in snapshots {
+                tx.execute(
+                    "DELETE FROM environment_snapshot WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM run WHERE environment_snapshot_id = ?1)
+                       AND NOT EXISTS (SELECT 1 FROM ballistic_card WHERE environment_snapshot_id = ?1)",
+                    params![s],
+                )?;
+            }
             tx.execute("DELETE FROM session WHERE id = ?1", params![sid])?;
             Ok(())
         })
     }
 
-    /// Delete every run, session, day plan, snapshot, drill, equipment item, place, override, and cached document.
+    /// Delete every run, session, day plan, snapshot, drill, equipment item, load, range card, place, override, and cached document.
     pub fn delete_all_history(&mut self) -> Result<DeletionReport> {
         let ids: Vec<String> = {
             let mut st = self.conn.prepare("SELECT id FROM run")?;
@@ -432,11 +451,14 @@ impl Repository {
             tx.execute("DELETE FROM checklist_item WHERE plan_id IS NOT NULL", [])?;
             tx.execute("DELETE FROM plan_item", [])?;
             tx.execute("DELETE FROM day_plan", [])?;
+            rep.cards += tx.execute("DELETE FROM ballistic_card", [])? as u32;
             for t in [
                 "session",
                 "environment_snapshot",
                 "drill_version",
                 "drill",
+                "load_version",
+                "load",
                 "equipment_version",
                 "equipment",
                 "saved_place",
@@ -447,7 +469,7 @@ impl Repository {
                 tx.execute(&format!("DELETE FROM {t}"), [])?;
             }
             // Starter drills are seeded again on next launch.
-            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'terrain_point', 'starter_drills_seeded', 'active_equipment')", [])?;
+            tx.execute("DELETE FROM app_setting WHERE key IN ('last_place', 'terrain_point', 'starter_drills_seeded', 'active_equipment', 'active_load')", [])?;
             Ok(())
         })
     }
