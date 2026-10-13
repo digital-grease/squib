@@ -194,6 +194,16 @@ open class AccessibilityAuditTest {
         rule.onNodeWithTag("tab_conditions").performClick()
         rule.waitOrDump { tag("conditions") }
         auditScrolling("Conditions", pages = 6)
+        rule.onNodeWithTag("open_ballistics").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") }
+        auditScrolling("Ballistics", pages = 4)
+        rule.onNodeWithTag("load_add").performScrollTo().performClick()
+        rule.waitOrDump { tag("load_editor") }
+        auditScrolling("Load editor", pages = 3)
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitOrDump { tag("ballistics") }
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitOrDump { tag("conditions") }
 
         rule.onNodeWithTag("tab_history").performClick()
         rule.waitOrDump { tag("history") }

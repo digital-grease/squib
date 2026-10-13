@@ -138,7 +138,7 @@ fun DataScreen(
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
             Column(Modifier.padding(12.dp)) {
                 Text("Delete all history", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                Text("Removes every run, drill, saved place, photo, video, and cached weather on this phone. Backups you saved elsewhere are not affected.", style = MaterialTheme.typography.bodySmall)
+                Text("Removes every run, drill, saved place, photo, video, ballistics load, range card, and cached weather on this phone. Backups you saved elsewhere are not affected.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { confirmDelete = 1 }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete all history") }
             }

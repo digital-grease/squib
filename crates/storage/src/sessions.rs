@@ -61,6 +61,21 @@ impl Repository {
         Ok(new_id.to_string())
     }
 
+    /// The shooter's current visit, if one is active and not idle; never starts one.
+    /// Used for records that belong to a visit only when one is under way (range cards).
+    pub fn current_session(&self, shooter_id: &str, now_utc_ms: i64) -> Result<Option<String>> {
+        let existing: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT s.id, MAX(s.started_utc_ms, COALESCE((SELECT MAX(created_utc_ms) FROM run WHERE session_id = s.id), 0))
+                 FROM session s WHERE s.shooter_id = ?1 AND s.active = 1 ORDER BY s.started_utc_ms DESC LIMIT 1",
+                params![shooter_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(existing.filter(|(_, last)| now_utc_ms - last <= SESSION_IDLE_MS).map(|(id, _)| id))
+    }
+
     /// End a session now; the next run starts a new one.
     pub fn end_session(&self, session_id: &str, now_utc_ms: i64) -> Result<()> {
         let n = self.conn.execute(

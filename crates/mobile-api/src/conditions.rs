@@ -656,6 +656,18 @@ impl SquibEngine {
         resolve(&uuid::Uuid::new_v4().to_string(), &cands, &overrides, place, st.issues.clone(), &policy, now_utc_ms)
     }
 
+    /// Current conditions resolved now, without storing them; `None` when no conditions
+    /// source has been used. The ballistics screen derives its air from this and pins
+    /// this same snapshot when a range card is saved.
+    pub(crate) fn current_snapshot(&self, now_utc_ms: i64) -> Option<EnvironmentSnapshot> {
+        let st = self.cond();
+        let has_overrides = !self.read_repo().list_overrides().unwrap_or_default().is_empty();
+        if st.remote.is_empty() && st.device.is_empty() && !has_overrides {
+            return None;
+        }
+        Some(self.resolve_now(&st, now_utc_ms))
+    }
+
     /// Pin current conditions for a run being armed: resolve, apply the retention
     /// policy, store immutably. `None` when no conditions source has been used.
     pub(crate) fn pin_conditions(&self, now_utc_ms: i64) -> Result<Option<String>, SquibError> {

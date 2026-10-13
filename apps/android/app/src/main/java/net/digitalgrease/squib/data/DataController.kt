@@ -450,7 +450,7 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     fun deleteAll() = act {
         val d = engine.deleteAllHistory()
         d.attachmentPaths.forEach { deleteAttachmentFile(it) }
-        _message.value = "Deleted ${d.runs} runs (with their photos, videos, and recordings) and all saved places, drills, and cached weather. Copies you exported or OS backups are not affected."
+        _message.value = "Deleted ${d.runs} runs (with their photos, videos, and recordings) and all saved places, drills, ballistics loads, range cards, and cached weather. Copies you exported or OS backups are not affected."
     }
 
     /** Delete an app-owned attachment, refusing any path that resolves outside the root. */

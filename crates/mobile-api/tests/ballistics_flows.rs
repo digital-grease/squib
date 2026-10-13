@@ -95,3 +95,69 @@ fn equipment_link_backup_and_delete_all() {
     e.delete_all_history().unwrap();
     assert!(e.list_loads().unwrap().is_empty());
 }
+
+fn request(load_id: &str, air: ballistics_api::AirChoice) -> ballistics_api::CardRequest {
+    ballistics_api::CardRequest {
+        load_id: load_id.into(),
+        air,
+        wind_mps: 4.0,
+        wind_from_deg: 90.0,
+        look_angle_deg: 0.0,
+        ranges_m: vec![100.0, 300.0, 600.0, 1200.0],
+    }
+}
+
+/// Plan 6.4: cards from entered air and from current conditions; saving re-solves in the
+/// core, pins the conditions, joins the current visit, and reads back exactly.
+#[test]
+fn range_cards_solve_save_and_read_back() {
+    use ballistics_api::AirChoice;
+    let (e, _) = engine("cards");
+    let load = e.save_load(None, input("175 SMK", 790.0), NOW).unwrap();
+    let manual = AirChoice::Manual { pressure_pa: 101_325.0, temperature_k: 288.15, relative_humidity: 0.0 };
+    let v = e.solve_card(request(&load.id, manual.clone()), NOW).unwrap();
+    assert!(v.id.is_none() && !v.air_from_conditions);
+    assert!((v.density_kg_m3 - 1.225).abs() < 0.001);
+    assert_eq!(v.rows.len(), 4);
+    assert!(v.rows[3].transonic && !v.rows[0].transonic);
+    assert!(v.rows.iter().all(|r| r.windage_m < 0.0 && r.windage_mil > 0.0), "wind from the right: hold right");
+    assert!(v.method.starts_with("squib-pointmass-v1"));
+    assert_eq!(v.load.version, 1);
+
+    // Current conditions: none yet, then from manual condition values.
+    assert!(!e.ballistics_air(NOW).available);
+    let none = e.solve_card(request(&load.id, AirChoice::Conditions), NOW).unwrap_err().to_string();
+    assert!(none.contains("no current conditions"), "{none}");
+    e.set_override("temperature".into(), 293.15, 20.0, "degC".into(), NOW).unwrap();
+    let partial = e.ballistics_air(NOW);
+    assert!(!partial.available && partial.reason.as_deref().unwrap_or("").contains("pressure"), "{partial:?}");
+    e.set_override("local_pressure".into(), 90_000.0, 900.0, "hPa".into(), NOW).unwrap();
+    e.set_override("relative_humidity".into(), 0.4, 40.0, "%".into(), NOW).unwrap();
+    let air = e.ballistics_air(NOW);
+    assert!(air.available && air.inputs.len() == 3, "{air:?}");
+    let c = e.solve_card(request(&load.id, AirChoice::Conditions), NOW).unwrap();
+    assert!(c.air_from_conditions && (c.density_kg_m3 - air.density_kg_m3.unwrap()).abs() < 1e-12);
+    assert!(c.rows[2].drop_m > v.rows[2].drop_m, "thinner air drops less");
+
+    // Saving solves again, pins conditions, and reads back exactly.
+    let saved = e.save_card(request(&load.id, AirChoice::Conditions), "Plateau".into(), NOW + 5).unwrap();
+    assert!(saved.id.is_some() && saved.created_utc_ms == Some(NOW + 5));
+    assert_eq!(saved.rows, c.rows);
+    // An edit to the load later does not change the saved card.
+    e.save_load(Some(load.id.clone()), input("175 SMK", 800.0), NOW + 6).unwrap();
+    let saved2 = e.save_card(request(&load.id, manual), "Sea level".into(), NOW + 7).unwrap();
+    let list = e.list_cards(10).unwrap();
+    assert_eq!(list.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), vec!["Sea level", "Plateau"]);
+    assert_eq!(list[1].rows, saved.rows, "read back exactly");
+    assert_eq!((list[1].load.version, list[0].load.version), (1, 2));
+    assert!(list[1].air_from_conditions && list[1].air_inputs.len() == 3 && !list[0].air_from_conditions);
+    e.delete_card(saved2.id.unwrap()).unwrap();
+    assert_eq!(e.list_cards(10).unwrap().len(), 1);
+
+    // Out-of-range requests are refused with a reason.
+    let bad = ballistics_api::CardRequest { look_angle_deg: 80.0, ..request(&load.id, AirChoice::Conditions) };
+    assert!(e.solve_card(bad, NOW).unwrap_err().to_string().contains("angle"));
+    let bad_air = AirChoice::Manual { pressure_pa: 5_000.0, temperature_k: 288.0, relative_humidity: 0.5 };
+    assert!(e.solve_card(request(&load.id, bad_air), NOW).unwrap_err().to_string().contains("pressure"));
+    assert!(e.solve_card(request("nope", AirChoice::Conditions), NOW).is_err());
+}

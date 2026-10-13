@@ -53,7 +53,7 @@ import net.digitalgrease.squib.ui.fmtDate
 private val PRIMARY = listOf("temperature", "relative_humidity", "wind_speed", "wind_gust", "wind_direction", "local_pressure", "altimeter_setting")
 
 @Composable
-fun ConditionsScreen(c: ConditionsController, onRequestLocation: (then: () -> Unit) -> Unit) {
+fun ConditionsScreen(c: ConditionsController, onRequestLocation: (then: () -> Unit) -> Unit, onBallistics: () -> Unit = {}) {
     val v by c.view.collectAsState()
     val places by c.places.collectAsState()
     val busy by c.busy.collectAsState()
@@ -73,6 +73,10 @@ fun ConditionsScreen(c: ConditionsController, onRequestLocation: (then: () -> Un
             ValuesSection(view, c, busy, us)
         }
         PrivacyCard(view, c)
+        androidx.compose.material3.OutlinedButton(
+            onClick = onBallistics,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp).testTag("open_ballistics"),
+        ) { Text("Ballistics calculator (Experimental)") }
         view.attribution.forEach { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
         Text(
             "Values are estimates with their source shown. Weather can change faster than stations report.",

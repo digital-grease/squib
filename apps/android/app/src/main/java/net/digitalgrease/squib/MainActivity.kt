@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val data: DataController by viewModels()
+    private val ballistics: net.digitalgrease.squib.ballistics.BallisticsController by viewModels()
     private val walkthrough: net.digitalgrease.squib.data.WalkthroughController by viewModels()
     private var photoRun: String? = null
     private var backupWithPhotos = true
@@ -226,6 +227,7 @@ class MainActivity : ComponentActivity() {
                         tab == "about" -> tab = "data"
                         tab == "plan" -> { openPlan = null; tab = "practice"; data.reload() }
                         tab == "checklist" -> tab = "practice"
+                        tab == "ballistics" -> { tab = "conditions"; conditions.reload() }
                         tab == "history" && openSession != null -> { openSession = null; data.reload() }
                         else -> tab = "timer"
                     }
@@ -336,7 +338,11 @@ class MainActivity : ComponentActivity() {
                             }
                             tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" },
                                 onOpenSession = { openSession = it })
-                            tab == "conditions" -> ConditionsScreen(conditions, ::withLocation)
+                            tab == "conditions" -> ConditionsScreen(conditions, ::withLocation, onBallistics = { tab = "ballistics" })
+                            tab == "ballistics" -> {
+                                val us by conditions.usUnits.collectAsState()
+                                net.digitalgrease.squib.ballistics.BallisticsScreen(ballistics, us, onBack = { tab = "conditions"; conditions.reload() })
+                            }
                             else -> TimerScreen(controller, data, ::withMic, ::withCamera, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }
                     }

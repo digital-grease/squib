@@ -18,6 +18,9 @@ Every run is saved on the phone and grouped into visits. Summaries show medians 
 <b>Range conditions</b>
 Temperature, humidity, wind and pressure from nearby US National Weather Service stations or airport reports anywhere, the phone's barometer, or values you enter. Each value shows where it came from and how old it is. Optional US terrain elevation, weather alerts, a heat index card, and density altitude from actual pressure.
 
+<b>Ballistics calculator (experimental)</b>
+Range cards from your load's published G1 or G7 ballistic coefficient and measured muzzle velocity, with the current conditions or air you enter, wind and shot angle: corrections in mil or MOA, drop, velocity and time of flight. Checked against an independent solver and published tables; confirm on paper before relying on it.
+
 <b>Also</b>
 Optional video clips with shot markers, rounds and cost, target photos you mark yourself, entry of times from another timer, and a private backup, optionally encrypted with a passphrase, that you can restore on any phone.
 

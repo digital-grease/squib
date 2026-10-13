@@ -99,6 +99,16 @@ class ScreenReaderTest {
         rule.onNodeWithTag("tab_conditions").performClick()
         rule.waitOrDump { tag("conditions") }
         readScrolling("Conditions", 4)
+        rule.onNodeWithTag("open_ballistics").performScrollTo().performClick()
+        rule.waitOrDump { tag("ballistics") }
+        readScrolling("Ballistics", 4)
+        rule.onNodeWithTag("load_add").performScrollTo().performClick()
+        rule.waitOrDump { tag("load_editor") }
+        readScrolling("Load editor", 3)
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitOrDump { tag("ballistics") }
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitOrDump { tag("conditions") }
         rule.onNodeWithTag("tab_history").performClick()
         rule.waitOrDump { tag("history") }
         readScrolling("History", 2)
