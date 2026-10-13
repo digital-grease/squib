@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -101,6 +102,12 @@ class ScreenReaderTest {
         rule.onNodeWithTag("tab_history").performClick()
         rule.waitOrDump { tag("history") }
         readScrolling("History", 2)
+        rule.onNodeWithTag("history").performScrollToNode(hasTestTag("open_data"))
+        rule.onNodeWithTag("open_data").performClick()
+        rule.waitOrDump { tag("open_about") }
+        rule.onNodeWithTag("open_about").performScrollTo().performClick()
+        rule.waitOrDump { tag("about") }
+        readScrolling("About", 3)
 
         problems.forEach { android.util.Log.e("SquibReader", it) }
         check(problems.isEmpty()) { problems.distinct().joinToString("\n") }

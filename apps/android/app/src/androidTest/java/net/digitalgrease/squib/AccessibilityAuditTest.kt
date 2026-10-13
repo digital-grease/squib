@@ -213,6 +213,13 @@ open class AccessibilityAuditTest {
         rule.waitOrDump { !tag("history") }
         auditScrolling("Data", pages = 6)
 
+        rule.onNodeWithTag("open_about").performScrollTo().performClick()
+        rule.waitOrDump { tag("about") }
+        auditScrolling("About", pages = 4)
+        rule.onNodeWithTag("about_notices").performScrollTo().performClick()
+        rule.waitOrDump { has("rusqlite") || has("Squib is built on") }
+        auditScrolling("Third-party licences", pages = 2)
+
         android.util.Log.i("SquibA11y", "findings: ${findings.size}")
         findings.forEach { android.util.Log.e("SquibA11y", it) }
         check(findings.isEmpty()) { findings.joinToString("\n\n") }
