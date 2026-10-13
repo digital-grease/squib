@@ -50,14 +50,14 @@ fn marks_are_versioned_linked_to_revisions_backed_up_and_never_shared() {
 
     // Backups keep the marks; shared results leave them out.
     let zip = d.join("b.zip").to_string_lossy().to_string();
-    e.export_backup(zip.clone(), root.clone(), true, false, "t".into(), NOW).unwrap();
+    e.export_backup(zip.clone(), root.clone(), true, false, "t".into(), NOW, None).unwrap();
     let (fresh, fd) = engine("restore");
-    fresh.import_backup(zip, fd.to_string_lossy().into(), None).unwrap();
+    fresh.import_backup(zip, fd.to_string_lossy().into(), None, None).unwrap();
     let restored = fresh.photo_annotation(photo.id.clone()).unwrap();
     assert_eq!((restored.number, restored.note.as_str(), restored.hits), (Some(2), "one", 1));
     // Import as a copy (here into the same phone): the copy's photo carries the marks under
     // new ids, and the original is untouched.
-    let copied = e.import_backup_copy(d.join("b.zip").to_string_lossy().to_string(), root.clone(), None, NOW + 5).unwrap();
+    let copied = e.import_backup_copy(d.join("b.zip").to_string_lossy().to_string(), root.clone(), None, NOW + 5, None).unwrap();
     assert_eq!(copied.runs_new, 1);
     let copy_run = e.list_runs(10).unwrap().into_iter().find(|x| x.run_id != run).unwrap().run_id;
     let copy_photo = e.run_attachments(copy_run).remove(0);

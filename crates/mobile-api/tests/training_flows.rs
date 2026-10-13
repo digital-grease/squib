@@ -151,18 +151,18 @@ fn backup_restore_delete_and_report() {
     let id = e.add_manual_run("Club timer".into(), 10, "1.0 1.5".into(), None, None, NOW, 0, "test".into()).unwrap();
     e.add_saved_place("Secret range".into(), 40.0, -105.0, NOW).unwrap();
     let zip = d.join("backup.zip").to_string_lossy().to_string();
-    let b = e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "test".into(), NOW).unwrap();
+    let b = e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "test".into(), NOW, None).unwrap();
     assert_eq!(b.runs, 1);
     assert!(b.contains_location && !b.encrypted && !b.contains_audio);
 
     let (fresh, fd) = engine("restore");
-    let p = fresh.preview_import(zip.clone(), fd.to_string_lossy().into()).unwrap();
+    let p = fresh.preview_import(zip.clone(), fd.to_string_lossy().into(), None).unwrap();
     assert_eq!(p.runs_new, 1);
     assert!(fresh.list_runs(10).unwrap().is_empty(), "preview changes nothing");
-    let r = fresh.import_backup(zip.clone(), fd.to_string_lossy().into(), None).unwrap();
+    let r = fresh.import_backup(zip.clone(), fd.to_string_lossy().into(), None, None).unwrap();
     assert_eq!(r.runs_new, 1);
     assert_eq!(fresh.load_review(id.clone()).unwrap().splits_ns, vec![500_000_000]);
-    let r = fresh.import_backup(zip, fd.to_string_lossy().into(), None).unwrap();
+    let r = fresh.import_backup(zip, fd.to_string_lossy().into(), None, None).unwrap();
     assert_eq!((r.runs_new, r.runs_already_present), (0, 1));
 
     let csv = e.export_csv().unwrap();
@@ -185,4 +185,65 @@ fn backup_restore_delete_and_report() {
     drop(fresh);
     let reopened = SquibEngine::new(fd.join("journal.db").to_string_lossy().into(), NOW).unwrap();
     assert_eq!(reopened.list_drills().len(), 3, "starter drills return after deleting everything");
+}
+
+/// Plan 5.7: passphrase-encrypted backups through the app API.
+#[test]
+fn encrypted_backup_export_preview_and_restore() {
+    let (e, d) = engine("enc-backup");
+    let id = e.add_manual_run("Club timer".into(), 10, "1.0 1.5".into(), None, None, NOW, 0, "test".into()).unwrap();
+    e.add_saved_place("Secret range".into(), 40.0, -105.0, NOW).unwrap();
+    let out = d.join("backup.zip.age");
+    let out_s = out.to_string_lossy().to_string();
+
+    assert_eq!(backup_passphrase_problem("short".into()).as_deref(), Some("use at least 8 characters"));
+    assert_eq!(backup_passphrase_problem("correct horse".into()), None);
+    let err = e.export_backup(out_s.clone(), d.to_string_lossy().into(), false, false, "t".into(), NOW, Some("short".into()));
+    assert!(matches!(err, Err(SquibError::Rejected(ref m)) if m.contains("at least 8")), "{err:?}");
+    assert!(!out.exists());
+
+    let pass = "correct horse battery".to_string();
+    let b =
+        e.export_backup(out_s.clone(), d.to_string_lossy().into(), false, false, "t".into(), NOW, Some(pass.clone())).unwrap();
+    assert!(b.encrypted && b.contains_location);
+    assert_eq!(b.bytes, std::fs::metadata(&out).unwrap().len());
+    assert!(e.backup_is_encrypted(out_s.clone()).unwrap());
+    let leftovers: Vec<_> = std::fs::read_dir(&d)
+        .unwrap()
+        .map(|x| x.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("squib-plain"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    let raw = std::fs::read(&out).unwrap();
+    assert!(!raw.windows(12).any(|w| w == b"Secret range"));
+
+    let (fresh, fd) = engine("enc-restore");
+    let fd_s: String = fd.to_string_lossy().into();
+    let need = fresh.preview_import(out_s.clone(), fd_s.clone(), None);
+    assert!(matches!(need, Err(SquibError::Rejected(ref m)) if m.contains("encrypted")), "{need:?}");
+    let wrong = fresh.preview_import(out_s.clone(), fd_s.clone(), Some("wrong horse battery".into()));
+    assert!(matches!(wrong, Err(SquibError::Rejected(ref m)) if m == "wrong passphrase"), "{wrong:?}");
+    assert!(fresh.import_backup(out_s.clone(), fd_s.clone(), None, Some("wrong horse battery".into())).is_err());
+    assert!(fresh.list_runs(10).unwrap().is_empty());
+
+    let p = fresh.preview_import(out_s.clone(), fd_s.clone(), Some(pass.clone())).unwrap();
+    assert_eq!(p.runs_new, 1);
+    assert!(p.contains_location);
+    let r = fresh.import_backup(out_s.clone(), fd_s.clone(), None, Some(pass.clone())).unwrap();
+    assert_eq!(r.runs_new, 1);
+    assert_eq!(fresh.load_review(id).unwrap().splits_ns, vec![500_000_000]);
+    let c = fresh.import_backup_copy(out_s.clone(), fd_s.clone(), None, NOW + 1, Some(pass)).unwrap();
+    assert_eq!(c.runs_new, 1, "as a copy, with a new id");
+    let leftovers: Vec<_> = std::fs::read_dir(&fd)
+        .unwrap()
+        .map(|x| x.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("squib-plain"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+
+    // An unencrypted backup still works, with or without a passphrase given.
+    let zip = d.join("plain.zip").to_string_lossy().to_string();
+    e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "t".into(), NOW, None).unwrap();
+    assert!(!e.backup_is_encrypted(zip.clone()).unwrap());
+    assert_eq!(fresh.preview_import(zip, fd_s, Some("anything at all".into())).unwrap().runs_already_present, 1);
 }

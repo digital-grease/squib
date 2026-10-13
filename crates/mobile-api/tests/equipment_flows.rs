@@ -101,8 +101,8 @@ fn equipment_is_pinned_versioned_filtered_exported_and_backed_up() {
 
     // Backup round trip keeps the versions the runs point at.
     let zip = d.join("b.zip").to_string_lossy().to_string();
-    e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "t".into(), NOW).unwrap();
+    e.export_backup(zip.clone(), d.to_string_lossy().into(), false, false, "t".into(), NOW, None).unwrap();
     let (fresh, fd) = engine("restore");
-    fresh.import_backup(zip, fd.to_string_lossy().into(), None).unwrap();
+    fresh.import_backup(zip, fd.to_string_lossy().into(), None, None).unwrap();
     assert_eq!(fresh.load_review(with_g1).unwrap().equipment.as_deref(), Some("=HYPERLINK(\"x\") (pistol)"));
 }

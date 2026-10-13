@@ -4,6 +4,8 @@
 //!   manifest (format/version, schema version, file inventory with SHA-256, what kinds
 //!   of private data are included) and one JSON file per table. Integers are decimal
 //!   strings so 64-bit timestamps survive JSON consumers.
+//! - **Encrypted backup** (optional): the same zip wrapped in a standard age file with
+//!   a passphrase (see `crypt`); an unencrypted backup stays available.
 //! - **Import**: validated before any mutation (size, entry count, compression ratio,
 //!   traversal/symlinks, unlisted files, hashes, schema version, identifiers), staged in
 //!   a temporary database migrated with the app's own migrations, checked for
@@ -17,6 +19,7 @@
 pub mod backup;
 pub mod cell;
 mod copy;
+pub mod crypt;
 pub mod csv_export;
 pub mod diagnostic;
 pub mod share;
@@ -47,6 +50,14 @@ pub enum ArchiveError {
     InvalidData { table: String, detail: String },
     #[error("{0} records conflict with different existing records; nothing was imported")]
     Conflicts(usize),
+    #[error("this backup is encrypted: enter its passphrase")]
+    PassphraseRequired,
+    #[error("wrong passphrase")]
+    WrongPassphrase,
+    #[error("passphrase not accepted: {0}")]
+    Passphrase(String),
+    #[error("the encrypted backup is damaged or incomplete")]
+    Damaged,
     #[error("storage: {0}")]
     Storage(String),
     #[error("io: {0}")]

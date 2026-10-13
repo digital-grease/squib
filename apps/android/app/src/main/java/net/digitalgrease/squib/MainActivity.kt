@@ -107,8 +107,15 @@ class MainActivity : ComponentActivity() {
         // Consent was confirmed in the preview before the picker opened.
         if (uri != null && run != null) data.exportDiagnostic(run, uri, consent = true)
     }
+    private var backupPassphrase: String? = null
     private val createBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let { data.exportBackup(it, backupWithPhotos, backupWithAudio) }
+        uri?.let { data.exportBackup(it, backupWithPhotos, backupWithAudio, null) }
+    }
+    // A generic type, so the file picker keeps the .age name instead of adding .zip.
+    private val createEncryptedBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val passphrase = backupPassphrase
+        backupPassphrase = null
+        if (uri != null && passphrase != null) data.exportBackup(uri, backupWithPhotos, backupWithAudio, passphrase)
     }
     private val createCsv = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri?.let { data.exportCsv(it) }
@@ -289,8 +296,9 @@ class MainActivity : ComponentActivity() {
                             tab == "data" -> DataScreen(
                                 data,
                                 onBack = { tab = "history" },
-                                onExportBackup = { photos, audio ->
-                                    backupWithPhotos = photos; backupWithAudio = audio; createBackup.launch("squib-backup.zip")
+                                onExportBackup = { photos, audio, passphrase ->
+                                    backupWithPhotos = photos; backupWithAudio = audio; backupPassphrase = passphrase
+                                    if (passphrase != null) createEncryptedBackup.launch("squib-backup.zip.age") else createBackup.launch("squib-backup.zip")
                                 },
                                 onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
                                 onExportCsv = { createCsv.launch("squib-runs.csv") },

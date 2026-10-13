@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use squib_archive::crypt::{self, ExposeSecret, SecretString};
 use squib_archive::{ExportOptions, Limits};
 use squib_domain::{DOMAIN_SCHEMA_VERSION, DelayPolicy, RunConfig, SourceMode, TIMESTAMP_MAPPING_METHOD};
 use squib_storage::{AttachmentRecord, DEFAULT_SHOOTER_ID, RunIntent, StorageError, drill_ref, parse_drill_ref};
@@ -703,6 +704,10 @@ impl SquibEngine {
 
     // ---- Portability (A17, A19) -----------------------------------------------------------
 
+    /// Write a private backup to `out_path`. With a passphrase, the backup is encrypted
+    /// (age, scrypt; plan 5.7): the zip is built next to `out_path`, encrypted, and the
+    /// plaintext removed. The passphrase is checked before anything is written.
+    #[allow(clippy::too_many_arguments)]
     pub fn export_backup(
         &self,
         out_path: String,
@@ -711,7 +716,12 @@ impl SquibEngine {
         include_diagnostic_audio: bool,
         app_version: String,
         now_utc_ms: i64,
+        passphrase: Option<String>,
     ) -> Result<BackupView, SquibError> {
+        let passphrase = passphrase.map(SecretString::from);
+        if let Some(p) = &passphrase {
+            crypt::check_passphrase(p.expose_secret()).map_err(rejected)?;
+        }
         let opts = ExportOptions {
             app_version,
             created_utc_ms: now_utc_ms,
@@ -719,22 +729,42 @@ impl SquibEngine {
             include_media,
             include_diagnostic_audio,
         };
-        let s = self.store_actor().exec(move |repo| {
-            squib_archive::export_private(repo, Path::new(&out_path), &opts).map_err(|e| StorageError::Write(e.to_string()))
-        })?;
+        let out = PathBuf::from(out_path);
+        // Encryption runs outside the store actor: scrypt takes about a second on a phone.
+        let plain = passphrase.as_ref().map(|_| crypt::Plain::temporary(out.parent().unwrap_or(Path::new(".")), "out"));
+        let zip = plain.as_ref().map(|p| p.path().to_path_buf()).unwrap_or_else(|| out.clone());
+        let mut s = self
+            .store_actor()
+            .exec(move |repo| squib_archive::export_private(repo, &zip, &opts).map_err(|e| StorageError::Write(e.to_string())))?;
+        if let (Some(plain), Some(p)) = (&plain, &passphrase) {
+            crypt::encrypt_file(plain.path(), &out, p, crypt::WORK_FACTOR).map_err(rejected)?;
+            s.bytes = std::fs::metadata(&out).map_err(inval)?.len();
+        }
         Ok(BackupView {
             bytes: s.bytes,
             runs: s.runs,
             attachments: s.attachments,
             contains_location: s.contains.location,
             contains_audio: s.contains.raw_audio,
-            encrypted: false,
+            encrypted: passphrase.is_some(),
         })
     }
 
-    pub fn preview_import(&self, archive_path: String, scratch_dir: String) -> Result<ImportView, SquibError> {
+    /// Whether a picked backup is passphrase-encrypted, so the app can ask for the
+    /// passphrase before previewing it.
+    pub fn backup_is_encrypted(&self, archive_path: String) -> Result<bool, SquibError> {
+        Ok(crypt::detect(Path::new(&archive_path)).map_err(rejected)? == crypt::Encryption::Age)
+    }
+
+    pub fn preview_import(
+        &self,
+        archive_path: String,
+        scratch_dir: String,
+        passphrase: Option<String>,
+    ) -> Result<ImportView, SquibError> {
+        let plain = open_backup(&archive_path, &scratch_dir, passphrase)?;
         let r = self.store_actor().exec(move |repo| {
-            squib_archive::preview(repo, Path::new(&archive_path), Path::new(&scratch_dir), &Limits::default())
+            squib_archive::preview(repo, plain.path(), Path::new(&scratch_dir), &Limits::default())
                 .map_err(|e| StorageError::Conflict(e.to_string()))
         })?;
         Ok(import_view(&r))
@@ -745,14 +775,16 @@ impl SquibEngine {
         archive_path: String,
         scratch_dir: String,
         attachment_root: Option<String>,
+        passphrase: Option<String>,
     ) -> Result<ImportView, SquibError> {
         if self.run_active() {
             return Err(SquibError::Rejected("finish the current run before importing".into()));
         }
+        let plain = open_backup(&archive_path, &scratch_dir, passphrase)?;
         let r = self.store_actor().exec(move |repo| {
             squib_archive::import(
                 repo,
-                Path::new(&archive_path),
+                plain.path(),
                 Path::new(&scratch_dir),
                 attachment_root.as_deref().map(Path::new),
                 &Limits::default(),
@@ -768,9 +800,11 @@ impl SquibEngine {
         archive_path: String,
         scratch_dir: String,
         now_utc_ms: i64,
+        passphrase: Option<String>,
     ) -> Result<ImportView, SquibError> {
+        let plain = open_backup(&archive_path, &scratch_dir, passphrase)?;
         let r = self.store_actor().exec(move |repo| {
-            squib_archive::preview_copy(repo, Path::new(&archive_path), Path::new(&scratch_dir), &Limits::default(), now_utc_ms)
+            squib_archive::preview_copy(repo, plain.path(), Path::new(&scratch_dir), &Limits::default(), now_utc_ms)
                 .map_err(|e| StorageError::Conflict(e.to_string()))
         })?;
         Ok(import_view(&r))
@@ -784,14 +818,16 @@ impl SquibEngine {
         scratch_dir: String,
         attachment_root: Option<String>,
         now_utc_ms: i64,
+        passphrase: Option<String>,
     ) -> Result<ImportView, SquibError> {
         if self.run_active() {
             return Err(SquibError::Rejected("finish the current run before importing".into()));
         }
+        let plain = open_backup(&archive_path, &scratch_dir, passphrase)?;
         let r = self.store_actor().exec(move |repo| {
             squib_archive::import_copy(
                 repo,
-                Path::new(&archive_path),
+                plain.path(),
                 Path::new(&scratch_dir),
                 attachment_root.as_deref().map(Path::new),
                 &Limits::default(),
@@ -901,6 +937,29 @@ impl SquibEngine {
         }
         out
     }
+}
+
+/// A picked backup ready to read: decrypted into `scratch_dir` when it is encrypted
+/// (outside the store actor; the plaintext is removed when the value drops).
+fn open_backup(archive_path: &str, scratch_dir: &str, passphrase: Option<String>) -> Result<crypt::Plain, SquibError> {
+    let passphrase = passphrase.map(SecretString::from);
+    crypt::open(Path::new(archive_path), Path::new(scratch_dir), passphrase.as_ref(), Limits::default().max_archive_bytes)
+        .map_err(rejected)
+}
+
+/// Passphrase and decryption problems are the user's to fix: shown as given.
+fn rejected(e: squib_archive::ArchiveError) -> SquibError {
+    SquibError::Rejected(e.to_string())
+}
+
+/// Why a passphrase would not be accepted for an encrypted backup, or `None` when it
+/// would be. The app shows this while the passphrase is typed.
+#[uniffi::export]
+pub fn backup_passphrase_problem(passphrase: String) -> Option<String> {
+    crypt::check_passphrase(&passphrase).err().map(|e| match e {
+        squib_archive::ArchiveError::Passphrase(m) => m,
+        other => other.to_string(),
+    })
 }
 
 fn import_view(r: &squib_archive::ImportReport) -> ImportView {

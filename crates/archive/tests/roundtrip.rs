@@ -954,3 +954,127 @@ fn robust_diagnostic_export_reader() {
         },
     );
 }
+
+// ---- Plan 5.7: optional passphrase encryption (age) ----------------------------------
+
+fn secret(s: &str) -> crypt::SecretString {
+    crypt::SecretString::from(s.to_string())
+}
+
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into()).collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn encrypted_backup_restores_exactly_and_leaves_no_plaintext() {
+    let d = dir("encrypted");
+    let att_a = d.join("att-a");
+    let mut src = build(&d.join("a.db"), &att_a);
+    let plain_zip = d.join("plain.zip");
+    export(&mut src, &plain_zip, Some(&att_a));
+    let scratch = d.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let enc = d.join("backup.zip.age");
+    let opts = ExportOptions {
+        app_version: "test".into(),
+        created_utc_ms: 99,
+        attachment_root: Some(att_a.clone()),
+        include_media: true,
+        include_diagnostic_audio: false,
+    };
+    assert!(matches!(
+        crypt::export_encrypted(&mut src, &enc, &scratch, &opts, &secret("short")),
+        Err(ArchiveError::Passphrase(_))
+    ));
+    assert!(!enc.exists(), "a refused passphrase writes nothing");
+    let summary = crypt::export_encrypted(&mut src, &enc, &scratch, &opts, &secret("correct horse battery")).unwrap();
+    assert_eq!(summary.runs, 2);
+    assert_eq!(summary.bytes, std::fs::metadata(&enc).unwrap().len());
+    assert!(names_in(&scratch).is_empty(), "plaintext zip removed after encrypting");
+    assert_eq!(crypt::detect(&enc).unwrap(), crypt::Encryption::Age);
+    assert!(zip::ZipArchive::new(std::fs::File::open(&enc).unwrap()).is_err(), "not readable as a zip");
+    // Private content is not visible in the encrypted bytes.
+    let raw = std::fs::read(&enc).unwrap();
+    for needle in [b"live-1".as_slice(), b"fake-mp4", b"manifest.json", b"squib-private-backup"] {
+        assert!(!raw.windows(needle.len()).any(|w| w == needle), "{}", String::from_utf8_lossy(needle));
+    }
+
+    // Read through the import path: wrong or missing passphrase changes nothing.
+    let att_b = d.join("att-b");
+    let mut dst = Repository::open(&d.join("b.db")).unwrap();
+    dst.ensure_default_shooter(500).unwrap();
+    let before = fingerprint(&mut dst);
+    let max = Limits::default().max_archive_bytes;
+    assert_eq!(crypt::open(&enc, &scratch, None, max).unwrap_err(), ArchiveError::PassphraseRequired);
+    assert_eq!(
+        crypt::open(&enc, &scratch, Some(&secret("wrong horse battery")), max).unwrap_err(),
+        ArchiveError::WrongPassphrase
+    );
+    // An encrypted file handed straight to the zip importer is refused, not misread.
+    assert!(matches!(import(&mut dst, &enc, &scratch, Some(&att_b), &Limits::default()), Err(ArchiveError::NotSquib(_))));
+    assert_eq!(fingerprint(&mut dst), before);
+    assert!(names_in(&scratch).is_empty());
+
+    let plain = crypt::open(&enc, &scratch, Some(&secret("correct horse battery")), max).unwrap();
+    // The decrypted archive has exactly the entries an unencrypted backup has.
+    let mut a: Vec<String> = zip_entries(plain.path()).into_iter().map(|e| e.0).collect();
+    let mut b: Vec<String> = zip_entries(&plain_zip).into_iter().map(|e| e.0).collect();
+    a.sort();
+    b.sort();
+    assert_eq!(a, b);
+    let rep = import(&mut dst, plain.path(), &scratch, Some(&att_b), &Limits::default()).unwrap();
+    drop(plain);
+    assert_eq!(rep.inserted["run"], 2);
+    assert_eq!(rep.attachments_restored, 2);
+    for id in ["live-1", "manual-1"] {
+        let x = src.load_run(id).unwrap();
+        let y = dst.load_run(id).unwrap();
+        assert_eq!((x.config, x.candidates, x.revisions, x.environment), (y.config, y.candidates, y.revisions, y.environment));
+    }
+    assert_eq!(std::fs::read(att_b.join("videos/v1.mp4")).unwrap(), b"fake-mp4");
+    assert!(names_in(&scratch).is_empty(), "decrypted copy removed after import");
+}
+
+/// Mutated encrypted backups (header, stanza, payload) never panic, never leave the
+/// decrypted temporary behind, and never change the journal. Uses a low work factor so
+/// each case is fast; the limit on hostile work factors is a unit test in `crypt`.
+#[test]
+fn robust_encrypted_backup_open() {
+    let d = dir("fuzz-age");
+    let entries = exported(&d);
+    let zip_path = d.join("inner.zip");
+    write_zip(&zip_path, &entries);
+    let enc = d.join("good.age");
+    crypt::encrypt_file(&zip_path, &enc, &secret("correct horse battery"), 4).unwrap();
+    let good = std::fs::read(&enc).unwrap();
+    let scratch = d.join("age-scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let mut dest = Dest::new(&d);
+    let p = d.join("case.age");
+    let mut opened = 0usize;
+    fuzz(
+        "encrypted backup",
+        &[good],
+        &[b"age-encryption.org/v1\n", b"-> scrypt ", b"\n--- ", b" 18\n", b" 99\n", b"-> X25519 "],
+        iterations(150),
+        std::time::Duration::from_secs(10),
+        |b| {
+            std::fs::write(&p, b).unwrap();
+            let r = crypt::open(&p, &scratch, Some(&secret("correct horse battery")), Limits::default().max_archive_bytes);
+            let result = match r {
+                Ok(plain) => {
+                    opened += 1;
+                    dest.check(plain.path(), false)
+                }
+                Err(_) => Ok(()),
+            };
+            if !names_in(&scratch).is_empty() {
+                return Err(format!("decrypted temporary left behind: {:?}", names_in(&scratch)));
+            }
+            result
+        },
+    );
+    eprintln!("encrypted backup: {opened} mutants decrypted; import outcomes {:?}", dest.outcomes);
+}

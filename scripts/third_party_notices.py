@@ -66,6 +66,13 @@ def rust_components(texts):
                 t = f.read_text(errors="replace").strip()
                 texts[text_id(t)] = t
                 ids.append(text_id(t))
+        upstream = ROOT / "scripts/licenses/upstream" / f"{p['name']}.txt"
+        if not ids and upstream.is_file():
+            # The published crate omits its licence file; this is the text from the
+            # crate's own source repository (see scripts/licenses/upstream/README.md).
+            t = upstream.read_text().strip()
+            texts[text_id(t)] = t
+            ids.append(text_id(t))
         if not ids:
             # No licence file in the published crate: keep its own copyright header if the
             # source has one, and attach the licence text its SPDX expression names.

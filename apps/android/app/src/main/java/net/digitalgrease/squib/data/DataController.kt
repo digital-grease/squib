@@ -54,8 +54,11 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     val rounds: StateFlow<RoundTotalsView?> = _rounds.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
-    private val _pendingImport = MutableStateFlow<Pair<File, ImportView>?>(null)
-    val pendingImport: StateFlow<Pair<File, ImportView>?> = _pendingImport.asStateFlow()
+    private val _pendingImport = MutableStateFlow<PendingImport?>(null)
+    val pendingImport: StateFlow<PendingImport?> = _pendingImport.asStateFlow()
+    private val _passphrasePrompt = MutableStateFlow<PassphrasePrompt?>(null)
+    /** A picked backup is encrypted and waits for its passphrase. */
+    val passphrasePrompt: StateFlow<PassphrasePrompt?> = _passphrasePrompt.asStateFlow()
     private val _equipment = MutableStateFlow<List<net.digitalgrease.squib.core.EquipmentView>>(emptyList())
     val equipment: StateFlow<List<net.digitalgrease.squib.core.EquipmentView>> = _equipment.asStateFlow()
     val equipmentCategories: List<String> = engine.equipmentCategories()
@@ -314,20 +317,29 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { onDone() }
     }
 
-    // Backup / import / CSV (A17)
-    fun exportBackup(target: Uri, includePhotos: Boolean, includeAudio: Boolean) = act {
-        val tmp = File(app.cacheDir, "squib-backup.zip")
-        val v = engine.exportBackup(
-            tmp.absolutePath, attachmentRoot.absolutePath, includePhotos, includeAudio, BuildConfig.VERSION_NAME, System.currentTimeMillis(),
-        )
-        app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
-        tmp.delete()
-        val extras = listOfNotNull(
-            "saved places or location detail".takeIf { v.containsLocation },
-            "diagnostic audio recordings".takeIf { v.containsAudio },
-        )
-        _message.value = "Backup saved: ${v.runs} runs, ${v.attachments} files, ${v.bytes / 1024u} KB. It is not encrypted" +
-            (if (extras.isEmpty()) "." else " and contains ${extras.joinToString(" and ")}.")
+    // Backup / import / CSV (A17); optional passphrase encryption (plan 5.7)
+    fun exportBackup(target: Uri, includePhotos: Boolean, includeAudio: Boolean, passphrase: String?) = act {
+        val tmp = File(app.cacheDir, if (passphrase != null) "squib-backup.zip.age" else "squib-backup.zip")
+        try {
+            val v = engine.exportBackup(
+                tmp.absolutePath, attachmentRoot.absolutePath, includePhotos, includeAudio, BuildConfig.VERSION_NAME,
+                System.currentTimeMillis(), passphrase,
+            )
+            app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+            val extras = listOfNotNull(
+                "saved places or location detail".takeIf { v.containsLocation },
+                "diagnostic audio recordings".takeIf { v.containsAudio },
+            )
+            val counts = "${v.runs} runs, ${v.attachments} files, ${v.bytes / 1024u} KB"
+            _message.value = if (v.encrypted) {
+                "Encrypted backup saved: $counts. It can be restored only with its passphrase, which cannot be recovered if lost."
+            } else {
+                "Backup saved: $counts. It is not encrypted" +
+                    (if (extras.isEmpty()) "." else " and contains ${extras.joinToString(" and ")}.")
+            }
+        } finally {
+            tmp.delete()
+        }
     }
 
     // Diagnostic recordings (M5)
@@ -364,40 +376,68 @@ class DataController(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun previewImport(source: Uri) = act {
-        val tmp = File(app.cacheDir, "squib-import.zip")
+        cancelImport()
+        val tmp = File(app.cacheDir, "squib-import.bin")
         app.contentResolver.openInputStream(source)?.use { input ->
             tmp.outputStream().use { out ->
-                val copied = input.copyToLimited(out, 512L * 1024 * 1024)
+                // 512 MB of backup, plus room for the encryption overhead (16 bytes per 64 KB).
+                val copied = input.copyToLimited(out, 513L * 1024 * 1024)
                 if (!copied) throw IllegalStateException("backup is larger than 512 MB")
             }
         }
-        val v = engine.previewImport(tmp.absolutePath, app.cacheDir.absolutePath)
-        _pendingImport.value = tmp to v
+        if (engine.backupIsEncrypted(tmp.absolutePath)) {
+            _passphrasePrompt.value = PassphrasePrompt(tmp)
+            return@act
+        }
+        val v = engine.previewImport(tmp.absolutePath, app.cacheDir.absolutePath, null)
+        _pendingImport.value = PendingImport(tmp, v, null)
+    }
+
+    /** Decrypt and check a picked encrypted backup; a wrong passphrase keeps the prompt open. */
+    fun unlockImport(passphrase: String) {
+        val prompt = _passphrasePrompt.value ?: return
+        _passphrasePrompt.value = prompt.copy(checking = true, error = null)
+        viewModelScope.launch(worker) {
+            try {
+                val v = engine.previewImport(prompt.file.absolutePath, app.cacheDir.absolutePath, passphrase)
+                _passphrasePrompt.value = null
+                _pendingImport.value = PendingImport(prompt.file, v, passphrase)
+            } catch (e: Exception) {
+                _passphrasePrompt.value = prompt.copy(checking = false, error = e.message ?: "Could not open the backup.")
+            }
+        }
     }
 
     fun confirmImport() = act {
-        val (file, _) = _pendingImport.value ?: return@act
+        val p = _pendingImport.value ?: return@act
         _pendingImport.value = null
-        val v = engine.importBackup(file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath)
-        file.delete()
-        _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos and videos."
+        try {
+            val v = engine.importBackup(p.file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, p.passphrase)
+            _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos and videos."
+        } finally {
+            p.file.delete()
+        }
     }
 
     /** Import a conflicting backup as a copy: added alongside, nothing local overwritten. */
     fun confirmImportCopy() = act {
-        val (file, _) = _pendingImport.value ?: return@act
+        val p = _pendingImport.value ?: return@act
         _pendingImport.value = null
         try {
-            val v = engine.importBackupCopy(file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, System.currentTimeMillis())
+            val v = engine.importBackupCopy(
+                p.file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, System.currentTimeMillis(), p.passphrase,
+            )
             _message.value = "Imported a copy: ${v.runsNew} runs and ${v.attachmentsRestored} files added with new ids. Nothing already on this phone was changed."
         } finally {
-            file.delete()
+            p.file.delete()
         }
     }
 
     fun cancelImport() {
-        _pendingImport.value?.first?.delete()
+        _pendingImport.value?.file?.delete()
         _pendingImport.value = null
+        _passphrasePrompt.value?.file?.delete()
+        _passphrasePrompt.value = null
     }
 
     // Deletion
@@ -484,3 +524,9 @@ private fun java.io.InputStream.copyToLimited(out: java.io.OutputStream, limit: 
         out.write(buf, 0, r)
     }
 }
+
+/** A checked backup waiting for the user to confirm. The passphrase (for an encrypted
+ *  backup) is held in memory only until the import is confirmed or cancelled. */
+data class PendingImport(val file: File, val view: ImportView, val passphrase: String?)
+
+data class PassphrasePrompt(val file: File, val checking: Boolean = false, val error: String? = null)

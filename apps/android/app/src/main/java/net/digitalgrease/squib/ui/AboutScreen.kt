@@ -133,8 +133,8 @@ private val PRIVACY = listOf(
     "Audio is never sent anywhere and, by default, never saved: sound is analysed in memory and discarded. A diagnostic " +
         "recording keeps one run's audio only when you switch it on for that run.",
     "The microphone, camera and location are requested only when you use a feature that needs them.",
-    "History stays on this phone and is not in Android's automatic backups. Backup files are not encrypted, so store them " +
-        "somewhere you trust.",
+    "History stays on this phone and is not in Android's automatic backups. Backup files are encrypted only when you choose " +
+        "a passphrase while saving; either way, store them somewhere you trust.",
     "Shared results leave out your location, station names, notes, photos, videos and identifiers.",
     "Problem and compatibility reports open in your browser for you to review and submit; nothing is sent by itself.",
     "Links on this screen open in your browser and leave the app.",

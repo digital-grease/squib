@@ -28,8 +28,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import java.util.Locale
+import net.digitalgrease.squib.core.backupPassphraseProblem
 import net.digitalgrease.squib.data.DataController
 
 /** Backup, restore, CSV, deletion, round cost, and problem reports. */
@@ -37,7 +40,7 @@ import net.digitalgrease.squib.data.DataController
 fun DataScreen(
     d: DataController,
     onBack: () -> Unit,
-    onExportBackup: (includePhotos: Boolean, includeAudio: Boolean) -> Unit,
+    onExportBackup: (includePhotos: Boolean, includeAudio: Boolean, passphrase: String?) -> Unit,
     onImport: () -> Unit,
     onExportCsv: () -> Unit,
     onReportProblem: () -> Unit,
@@ -47,8 +50,13 @@ fun DataScreen(
 ) {
     val rounds by d.rounds.collectAsState()
     val pending by d.pendingImport.collectAsState()
+    val prompt by d.passphrasePrompt.collectAsState()
     var photos by remember { mutableStateOf(true) }
     var audio by remember { mutableStateOf(false) }
+    // Passphrases live in plain `remember`, never in saved instance state.
+    var encrypt by remember { mutableStateOf(false) }
+    var pass1 by remember { mutableStateOf("") }
+    var pass2 by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(0) }
     var cost by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("USD") }
@@ -63,13 +71,32 @@ fun DataScreen(
             Column(Modifier.padding(12.dp)) {
                 Text("Private backup", fontWeight = FontWeight.Bold)
                 Text(
-                    "A full copy of your history to restore on this or another phone. It is not encrypted and is private: it can include saved places, notes, photos, and videos. Store it somewhere you trust.",
+                    "A full copy of your history to restore on this or another phone. It is private: it can include saved places, notes, photos, and videos. " +
+                        "Unless you encrypt it with a passphrase, anyone who gets the file can read it. Store it somewhere you trust.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 LabeledToggle("Include photos and videos", photos, { photos = it }, controlAtEnd = true)
                 LabeledToggle("Include diagnostic recordings (audio)", audio, { audio = it }, controlAtEnd = true, tag = "backup_audio")
-                Button(onClick = { onExportBackup(photos, audio) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save backup") }
-                OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(top = 6.dp)) { Text("Restore from backup") }
+                LabeledToggle("Encrypt with a passphrase", encrypt, { encrypt = it; if (!it) { pass1 = ""; pass2 = "" } }, controlAtEnd = true, tag = "backup_encrypt")
+                val problem = if (encrypt) passphraseProblem(pass1, pass2) else null
+                if (encrypt) {
+                    Text(
+                        "The backup is encrypted with age, a standard file encryption format, using this passphrase. Without the passphrase nobody, " +
+                            "including you, can restore it: there is no recovery. Several unrelated words make a strong passphrase you can remember.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    PassphraseField(pass1, { pass1 = it }, "Passphrase", "backup_pass1")
+                    PassphraseField(pass2, { pass2 = it }, "Passphrase again", "backup_pass2")
+                    if (problem != null && (pass1.isNotEmpty() || pass2.isNotEmpty())) {
+                        Text(problem, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("backup_pass_problem"))
+                    }
+                }
+                Button(
+                    onClick = { onExportBackup(photos, audio, if (encrypt) pass1 else null) },
+                    enabled = problem == null,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("backup_save"),
+                ) { Text(if (encrypt) "Save encrypted backup" else "Save backup") }
+                OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(top = 6.dp).testTag("backup_restore")) { Text("Restore from backup") }
             }
         }
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
@@ -129,6 +156,34 @@ fun DataScreen(
             text = { Text(if (confirmDelete == 1) "Delete all history on this phone?" else "This cannot be undone. Delete everything now?") },
         )
     }
+    prompt?.let { p ->
+        var entered by remember(p.file) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = d::cancelImport,
+            confirmButton = {
+                TextButton(
+                    onClick = { d.unlockImport(entered) },
+                    enabled = entered.isNotEmpty() && !p.checking,
+                    modifier = Modifier.testTag("import_unlock"),
+                ) { Text(if (p.checking) "Checking…" else "Unlock") }
+            },
+            dismissButton = { TextButton(onClick = d::cancelImport) { Text("Cancel") } },
+            title = { Text("Encrypted backup") },
+            text = {
+                Column {
+                    Text("This backup is encrypted. Enter the passphrase it was saved with.")
+                    PassphraseField(entered, { entered = it }, "Passphrase", "import_passphrase")
+                    p.error?.let {
+                        Text(
+                            it.replaceFirstChar { c -> c.uppercase() } + ".",
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("import_pass_error"),
+                        )
+                    }
+                }
+            },
+        )
+    }
     pending?.let { (_, v) ->
         AlertDialog(
             onDismissRequest = d::cancelImport,
@@ -155,4 +210,24 @@ fun DataScreen(
             },
         )
     }
+}
+
+/** Why the two typed passphrases cannot be used yet, or null when they can. */
+private fun passphraseProblem(p1: String, p2: String): String? =
+    backupPassphraseProblem(p1)?.let { "Passphrase: $it." } ?: if (p1 != p2) "The passphrases do not match." else null
+
+@Composable
+private fun PassphraseField(value: String, onChange: (String) -> Unit, label: String, tag: String) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value, onChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        trailingIcon = {
+            TextButton(onClick = { visible = !visible }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (visible) "Hide" else "Show") }
+        },
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag(tag),
+    )
 }

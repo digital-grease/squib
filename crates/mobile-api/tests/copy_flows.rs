@@ -26,28 +26,28 @@ fn older_backups_merge_and_diverged_ones_import_as_a_copy() {
     let (a, da) = engine("phone-a");
     let run = a.add_manual_run("Club timer".into(), 10, "1.0 1.5".into(), None, None, NOW, 0, "t".into()).unwrap();
     let zip = da.join("shared.zip").to_string_lossy().to_string();
-    a.export_backup(zip.clone(), da.to_string_lossy().into(), true, false, "t".into(), NOW).unwrap();
+    a.export_backup(zip.clone(), da.to_string_lossy().into(), true, false, "t".into(), NOW, None).unwrap();
 
     // Same lineage: a review made after the backup is appended, so restoring the older
     // backup has nothing to conflict with.
     add_shot(&a, &run, 1_800_000_000);
-    assert!(a.preview_import(zip.clone(), da.to_string_lossy().into()).unwrap().conflicts.is_empty());
+    assert!(a.preview_import(zip.clone(), da.to_string_lossy().into(), None).unwrap().conflicts.is_empty());
 
     // Phone B restores the same backup and reviews the same run differently.
     let (b, db) = engine("phone-b");
-    b.import_backup(zip, db.to_string_lossy().into(), None).unwrap();
+    b.import_backup(zip, db.to_string_lossy().into(), None, None).unwrap();
     add_shot(&b, &run, 2_400_000_000);
     let from_b = db.join("b.zip").to_string_lossy().to_string();
-    b.export_backup(from_b.clone(), db.to_string_lossy().into(), true, false, "t".into(), NOW).unwrap();
+    b.export_backup(from_b.clone(), db.to_string_lossy().into(), true, false, "t".into(), NOW, None).unwrap();
 
     let root = da.to_string_lossy().to_string();
-    let p = a.preview_import(from_b.clone(), root.clone()).unwrap();
+    let p = a.preview_import(from_b.clone(), root.clone(), None).unwrap();
     assert!(p.conflicts.iter().any(|c| c.starts_with("run_revision")), "{:?}", p.conflicts);
-    assert!(a.import_backup(from_b.clone(), root.clone(), None).is_err());
+    assert!(a.import_backup(from_b.clone(), root.clone(), None, None).is_err());
 
-    let pc = a.preview_import_copy(from_b.clone(), root.clone(), NOW + 2).unwrap();
+    let pc = a.preview_import_copy(from_b.clone(), root.clone(), NOW + 2, None).unwrap();
     assert!(pc.conflicts.is_empty());
-    let v = a.import_backup_copy(from_b, root, None, NOW + 2).unwrap();
+    let v = a.import_backup_copy(from_b, root, None, NOW + 2, None).unwrap();
     assert_eq!(v.runs_new, 1);
     // Phone A's own review is untouched; the copy carries phone B's.
     let runs = a.list_runs(10).unwrap();

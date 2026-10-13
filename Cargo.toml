@@ -44,7 +44,16 @@ csv = "=1.4.0"
 flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
 qrcodegen = "=1.8.0"
 rqrr = { version = "=0.11.0", default-features = false }
+age = { version = "=0.12.1", default-features = false }
 
 [profile.release]
 debug = 1
 panic = "unwind"
+
+# scrypt (encrypted backups) runs about 20 times slower unoptimised; optimise it in
+# test builds so passphrase tests take a second, not half a minute.
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3

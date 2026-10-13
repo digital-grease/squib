@@ -102,8 +102,8 @@ fn robust_engine_survives_hostile_drill_files_and_backups() {
         std::fs::write(&bad, &b).unwrap();
         let p = bad.to_string_lossy().to_string();
         let s = d.to_string_lossy().to_string();
-        assert!(e.import_backup(p.clone(), s.clone(), None).is_err());
-        assert!(e.import_backup_copy(p, s, None, NOW).is_err());
+        assert!(e.import_backup(p.clone(), s.clone(), None, None).is_err());
+        assert!(e.import_backup_copy(p, s, None, NOW, None).is_err());
     }
     // Still fully usable: reads and a write both succeed.
     assert_eq!(e.list_drills().len(), before + imported);

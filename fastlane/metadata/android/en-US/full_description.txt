@@ -19,7 +19,7 @@ Every run is saved on the phone and grouped into visits. Summaries show medians 
 Temperature, humidity, wind and pressure from nearby US National Weather Service stations or airport reports anywhere, the phone's barometer, or values you enter. Each value shows where it came from and how old it is. Optional US terrain elevation, weather alerts, a heat index card, and density altitude from actual pressure.
 
 <b>Also</b>
-Optional video clips with shot markers, rounds and cost, target photos you mark yourself, entry of times from another timer, and a private backup you can restore on any phone.
+Optional video clips with shot markers, rounds and cost, target photos you mark yourself, entry of times from another timer, and a private backup, optionally encrypted with a passphrase, that you can restore on any phone.
 
 <b>Privacy</b>
 No account, no ads and no tracking. The internet is used only for weather and terrain lookups, each off until you turn it on. Audio is never sent anywhere and, by default, never saved.
