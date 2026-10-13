@@ -120,7 +120,8 @@ fn parse_wind(tok: &str) -> Option<Wind> {
     } else {
         return None;
     };
-    if body.len() < 5 {
+    // Wind groups are ASCII; checking first keeps the split on a character boundary.
+    if body.len() < 5 || !body.is_ascii() {
         return None;
     }
     let (dir, rest) = body.split_at(3);
@@ -244,6 +245,8 @@ pub fn parse_collection(status: u16, body: &[u8], lookup: (f64, f64), fetched_ut
         serde_json::from_slice(body).map_err(|e| ProviderIssue::Malformed { url_kind: "metar".into(), detail: e.to_string() })?;
     let arr = json.as_array().ok_or(ProviderIssue::Malformed { url_kind: "metar".into(), detail: "not a list".into() })?;
     let mut reports: Vec<Report> = Vec::new();
+    // Station id to position in `reports`, so a large response stays linear.
+    let mut index: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for o in arr {
         let id = o.get("icaoId").and_then(|v| v.as_str()).unwrap_or("");
         let (Some(lat), Some(lon), Some(raw)) = (
@@ -261,15 +264,17 @@ pub fn parse_collection(status: u16, body: &[u8], lookup: (f64, f64), fetched_ut
         let observed = o
             .get("obsTime")
             .and_then(|v| v.as_i64())
-            .map(|s| s * 1000)
+            .and_then(|s| s.checked_mul(1000))
             .or_else(|| o.get("reportTime").and_then(|v| v.as_str()).and_then(parse_rfc3339_ms));
-        if let Some(prev) = reports.iter_mut().find(|r| r.station.station_id == id) {
+        if let Some(&i) = index.get(id) {
+            let prev = &mut reports[i];
             if observed > prev.observed {
                 prev.observed = observed;
                 prev.raw = raw.to_string();
             }
             continue;
         }
+        index.insert(id, reports.len());
         reports.push(Report {
             station: StationRef {
                 station_id: id.to_string(),

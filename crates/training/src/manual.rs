@@ -64,7 +64,9 @@ impl ManualString {
                 return Err(ManualError::Times);
             }
             // Round to the stated precision so float parsing cannot invent resolution.
-            let ns = ((s * 1e9) / precision_ns as f64).round() as i64 * precision_ns;
+            // Checked: a huge entry such as 1e300 must be refused, not wrap around.
+            let steps = ((s * 1e9) / precision_ns as f64).round() as i64;
+            let ns = steps.checked_mul(precision_ns).ok_or(ManualError::Times)?;
             times.push(ns);
         }
         let m = ManualString { source_label: source_label.trim().into(), precision_ns, times_ns: times };

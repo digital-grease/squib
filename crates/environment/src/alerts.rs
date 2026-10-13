@@ -109,6 +109,13 @@ pub fn parse_alerts(status: u16, body: &[u8], now_utc_ms: i64) -> Result<Option<
             if until.is_some_and(|u| u <= now_utc_ms) {
                 return None;
             }
+            // An onset after the end is contradictory: keep the alert, drop the onset.
+            let onset = p
+                .onset
+                .as_deref()
+                .or(p.effective.as_deref())
+                .and_then(parse_rfc3339_ms)
+                .filter(|o| until.is_none_or(|u| *o <= u));
             Some(Alert {
                 id: clip(p.id, 200).unwrap_or_default(),
                 event: clip(p.event, 80).unwrap_or_else(|| "Weather alert".into()),
@@ -116,7 +123,7 @@ pub fn parse_alerts(status: u16, body: &[u8], now_utc_ms: i64) -> Result<Option<
                 urgency: clip(p.urgency, 20).unwrap_or_else(|| "Unknown".into()),
                 certainty: clip(p.certainty, 20).unwrap_or_else(|| "Unknown".into()),
                 headline: clip(p.headline, 300),
-                onset_utc_ms: p.onset.as_deref().or(p.effective.as_deref()).and_then(parse_rfc3339_ms),
+                onset_utc_ms: onset,
                 until_utc_ms: until,
                 sender: clip(p.sender_name, 80).unwrap_or_else(|| "National Weather Service".into()),
                 area: clip(p.area_desc, 300).unwrap_or_default(),
