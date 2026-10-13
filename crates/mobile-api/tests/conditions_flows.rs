@@ -578,3 +578,72 @@ fn alerts_outside_the_us_say_so_without_an_error() {
     assert_eq!(v.alerts_note.as_deref(), Some("Weather alerts are for US places only."));
     assert!(v.issues.iter().all(|i| !i.contains("alerts")), "{:?}", v.issues);
 }
+
+// ---- Plan 5.3: cancellation. A lookup the user abandoned must not answer a later one. ----
+
+fn respond(req: &HttpRequestFfi) -> HttpResponseFfi {
+    let (status, body) = serve(&req.url);
+    HttpResponseFfi {
+        id: req.id,
+        status,
+        body,
+        etag: None,
+        max_age_s: Some(300),
+        retry_after_s: None,
+        error: None,
+        unit_random: 0.5,
+    }
+}
+
+/// Answer requests in order until the refresh is done.
+fn drive(e: &SquibEngine, mut step: ConditionsStep, now: i64) {
+    let mut queue = step.requests.clone();
+    while !step.done {
+        step = e.conditions_response(respond(&queue.remove(0)), now);
+        queue.extend(step.requests.clone());
+    }
+}
+
+#[test]
+fn moving_the_place_cancels_lookups_in_flight() {
+    let e = engine("cancel-move");
+    e.set_weather_enabled(true).unwrap();
+    boulder(&e);
+    let old = e.conditions_refresh(NOW).unwrap();
+    assert!(e.conditions_view(NOW).refreshing);
+    // The user picks a place far away before Boulder's answers arrive.
+    e.set_place(PlaceInput { lat: 51.5, lon: -0.12, label: Some("London".into()), source: "manual".into() }).unwrap();
+    assert!(!e.conditions_view(NOW).refreshing, "the old lookups are cancelled");
+    for r in &old.requests {
+        let step = e.conditions_response(respond(r), NOW);
+        assert!(step.requests.is_empty() && step.done, "a late answer starts nothing");
+    }
+    let v = e.conditions_view(NOW);
+    assert!(v.fields.iter().all(|f| f.station_id.is_none()), "no Boulder weather shown for London");
+    assert!(v.alerts.is_empty());
+    // London's own refresh then works normally (outside the US: METAR).
+    drive(&e, e.conditions_refresh(NOW_METAR).unwrap(), NOW_METAR);
+    let t = field(&e.conditions_view(NOW_METAR), "temperature").station_id.clone().unwrap();
+    assert!(t.starts_with("EG"), "London station, got {t}");
+}
+
+#[test]
+fn a_new_refresh_ignores_answers_meant_for_the_one_it_replaced() {
+    let e = engine("cancel-replace");
+    e.set_weather_enabled(true).unwrap();
+    boulder(&e);
+    let first = e.conditions_refresh(NOW).unwrap();
+    let second = e.conditions_refresh(NOW).unwrap();
+    // Both start with a points lookup; the ids must differ so the first cannot answer the second.
+    let p1 = first.requests.iter().find(|r| r.url.contains("/points/")).unwrap();
+    let p2 = second.requests.iter().find(|r| r.url.contains("/points/")).unwrap();
+    assert_ne!(p1.id, p2.id);
+    // A wrong late answer to the first refresh (as if for a place outside the US).
+    let stale = HttpResponseFfi { status: 404, body: fx("points_outside_us.json"), ..respond(p1) };
+    let step = e.conditions_response(stale, NOW);
+    assert!(step.requests.is_empty() && !step.done, "ignored; the second refresh is still waiting");
+    drive(&e, second, NOW);
+    let v = e.conditions_view(NOW);
+    assert_eq!(field(&v, "temperature").station_id.as_deref(), Some("KBDU"), "the second refresh used its own answers");
+    assert!(v.issues.iter().all(|i| !i.contains("outside")), "{:?}", v.issues);
+}

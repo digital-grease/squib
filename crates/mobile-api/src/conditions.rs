@@ -61,6 +61,30 @@ pub struct CondState {
     /// Requests retried during the last refresh.
     pub retries: u32,
     pub allow_older: bool,
+    /// Tags every request id of the current lookups (top 8 bits). A response carrying an
+    /// older tag belongs to a refresh that was replaced or cancelled and is ignored.
+    pub generation: u32,
+}
+
+const GENERATION_SHIFT: u32 = 24;
+
+impl CondState {
+    /// Start a new generation: responses to anything sent before are ignored.
+    fn next_generation(&mut self) {
+        self.generation = self.generation % 255 + 1;
+    }
+
+    fn tag(&self, mut requests: Vec<HttpRequestFfi>) -> Vec<HttpRequestFfi> {
+        for r in &mut requests {
+            debug_assert!(r.id < 1 << GENERATION_SHIFT, "planner ids fit below the generation tag");
+            r.id = (self.generation << GENERATION_SHIFT) | (r.id & ((1 << GENERATION_SHIFT) - 1));
+        }
+        requests
+    }
+
+    fn busy(&self) -> bool {
+        self.refresh.is_some() || self.terrain.is_some() || self.alerts.is_some()
+    }
 }
 
 // ---- FFI types ----------------------------------------------------------------------
@@ -789,7 +813,11 @@ impl SquibEngine {
         let moved = st.place.as_ref().is_none_or(|p| nws::distance_m(p.lat, p.lon, lat, lon) > 1000.0);
         st.place = Some(new_place);
         if moved {
-            // Remote values and alerts belong to the old place.
+            // Remote values and alerts belong to the old place, and so do lookups in flight.
+            st.next_generation();
+            st.refresh = None;
+            st.alerts = None;
+            st.terrain = None;
             st.remote.clear();
             st.issues.clear();
             st.alerts_result = None;
@@ -822,6 +850,11 @@ impl SquibEngine {
         let metar_only = self.weather_provider() == "metar";
         let mut st = self.cond();
         let Some(place) = st.place.clone() else { return Err(SquibError::Rejected("choose a place first".into())) };
+        // A refresh replaces any still in flight; its late responses are ignored.
+        st.next_generation();
+        st.refresh = None;
+        st.alerts = None;
+        st.terrain = None;
         let read = self.read_repo();
         let mut requests = vec![];
         if weather {
@@ -858,12 +891,16 @@ impl SquibEngine {
         if !weather {
             st.last_refresh_utc_ms = Some(now_utc_ms);
         }
-        let done = st.refresh.is_none() && st.terrain.is_none() && st.alerts.is_none();
-        Ok(ConditionsStep { requests, done })
+        drop(read);
+        Ok(ConditionsStep { requests: st.tag(requests), done: !st.busy() })
     }
 
     pub fn conditions_response(&self, resp: HttpResponseFfi, now_utc_ms: i64) -> ConditionsStep {
         let mut st = self.cond();
+        if resp.id >> GENERATION_SHIFT != st.generation {
+            return ConditionsStep { requests: vec![], done: !st.busy() };
+        }
+        let resp = HttpResponseFfi { id: resp.id & ((1 << GENERATION_SHIFT) - 1), ..resp };
         let error = resp.error.as_deref().map(|e| match e {
             "offline" => TransportError::Offline,
             "timeout" => TransportError::Timeout,
@@ -927,8 +964,7 @@ impl SquibEngine {
             }
         }
         drop(read);
-        let done = st.refresh.is_none() && st.terrain.is_none() && st.alerts.is_none();
-        ConditionsStep { requests, done }
+        ConditionsStep { requests: st.tag(requests), done: !st.busy() }
     }
 
     /// Terrain lookup sends the place to about 10 m to the USGS Elevation Point Query
