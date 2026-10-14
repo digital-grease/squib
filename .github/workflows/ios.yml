@@ -82,11 +82,15 @@ jobs:
         run: xcodegen generate
       - name: Test on the simulator (SquibKit and UI tests)
         working-directory: apps/ios
+        # A failing test is retried once: the simulator intermittently fails to terminate
+        # an app between UI tests (a known XCTest issue). A real failure fails twice and
+        # still fails the job; any retry shows in the log.
         run: |
           set -o pipefail
           xcodebuild test \
             -project Squib.xcodeproj -scheme Squib \
             -destination "platform=iOS Simulator,name=$SIM_DEVICE,OS=$SIM_OS" \
+            -retry-tests-on-failure -test-iterations 2 \
             -derivedDataPath DerivedData \
             -resultBundlePath "$RUNNER_TEMP/Squib.xcresult"
       - name: Keep the test results when tests fail

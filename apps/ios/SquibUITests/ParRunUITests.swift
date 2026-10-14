@@ -14,6 +14,14 @@ final class ParRunUITests: XCTestCase {
         app.launch()
     }
 
+    // Each test ends its own app, so the next launch does not have to: terminating the
+    // previous instance inside launch() is where the simulator intermittently fails
+    // ("Failed to terminate", seen in the first CI run).
+    override func tearDown() {
+        app?.terminate()
+        app = nil
+    }
+
     private func waitFor(_ e: XCUIElement, label: String, timeout: TimeInterval = 20) {
         let p = NSPredicate(format: "label BEGINSWITH %@", label)
         let ex = expectation(for: p, evaluatedWith: e)
