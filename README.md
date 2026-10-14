@@ -40,7 +40,7 @@ Squib is an early prototype and is not yet available in any app store.
 - Range conditions work with US weather stations (National Weather Service) and, anywhere else, with nearby airport reports (METAR). Where no station reports nearby, enter values by hand.
 - Shot timing works in testing on a computer and in the Android emulator, but it has **not yet been tested on a real phone at a real range**. Treat its times as experimental until that testing is done.
 - Long sessions and screen response have been measured on a computer and in the emulator only: 30 minutes of continuous capture with no gaps, and 95% of on-screen cues drawn within 34 ms of when they were due, the slowest in 87 ms (the target is 95% under 150 ms). These still need measuring on real phones.
-- An iOS version exists as an experiment: the par timer only, on the same core. It is set up to be built and tested on the iOS simulator in the automated checks and has never run on an iPhone; shot timing on iOS needs one to develop.
+- An iOS version exists as an experiment: the par timer only, on the same core. It builds and passes its tests on the iOS simulator in the automated checks, and has never run on an iPhone; shot timing on iOS needs one to develop.
 - Squib does not claim any particular accuracy. It labels uncertain results, interrupted runs, and setups it cannot vouch for instead of guessing.
 
 ## Privacy
@@ -179,4 +179,4 @@ To run the instrumented suite against the minified build on an emulator (local t
 
 ### Evidence so far
 
-Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come. On iOS, the Swift layer is tested against the real core on Linux, and the app's tests are set to run on the iOS simulator in CI; nothing has run on Apple hardware outside CI.
+Unit, integration, and replay tests run on the desktop against synthetic recordings with known event positions. UI flows, permission denial, process termination recovery, and the audio transfer path have been exercised on an Android emulator. Synthetic audio and emulators cannot qualify a real microphone, speaker, or range environment; device and field testing are still to come. On iOS, the Swift layer is tested against the real core on Linux, and the app's unit and UI tests pass on the iOS simulator in CI; nothing has run on an iPhone.
