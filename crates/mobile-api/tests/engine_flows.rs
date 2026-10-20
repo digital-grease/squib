@@ -6,7 +6,7 @@
 //! Desktop-tested only: this proves engine logic, not any device's acoustics.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use squib_domain::{CueKind, frames_to_ns};
 use squib_mobile::*;
@@ -17,6 +17,8 @@ use squib_timing::synth::Rng;
 const RATE: u32 = 48_000;
 const BLOCK: usize = 480;
 const BASE_NS: i64 = 5_000_000_000_000;
+/// Real-time limit for storage to acknowledge a settle; generous for loaded CI runners.
+const SETTLE_WALL: Duration = Duration::from_secs(20);
 
 fn db_path(name: &str) -> String {
     let d = std::env::temp_dir().join(format!("squib-engine-{name}-{}", std::process::id()));
@@ -232,10 +234,30 @@ impl Sim {
         panic!("DSP worker did not process frame {end}");
     }
 
+    /// Advances simulated time by 10 ms for the first `max_steps` calls, then only polls.
+    /// Settling waits on storage, which acknowledges in real time; on a slow CI disk that can
+    /// take longer than the simulated budget, and advancing simulated time further would
+    /// change what the test exercises.
+    fn step_or_poll(&mut self, steps: &mut u32, max_steps: u32) -> EngineView {
+        if *steps < max_steps {
+            *steps += 1;
+            self.run_ms(10)
+        } else {
+            let v = self.eng.poll(self.now());
+            self.handle_effects(&v.effects.clone());
+            if self.record_views {
+                self.views.push(v.clone());
+            }
+            v
+        }
+    }
+
     fn settle_persisted(&mut self) -> EngineView {
-        for _ in 0..1000 {
+        let deadline = Instant::now() + SETTLE_WALL;
+        let mut steps = 0;
+        while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(2));
-            let v = self.run_ms(10);
+            let v = self.step_or_poll(&mut steps, 1000);
             if v.persist.as_deref() == Some("saved") {
                 return v;
             }
@@ -244,10 +266,12 @@ impl Sim {
     }
 
     fn settle(&mut self, phase: &str) -> EngineView {
-        for _ in 0..300 {
+        let deadline = Instant::now() + SETTLE_WALL;
+        let mut steps = 0;
+        while Instant::now() < deadline {
             // Storage acknowledges asynchronously in real time; give it a moment.
             std::thread::sleep(Duration::from_millis(1));
-            let v = self.run_ms(10);
+            let v = self.step_or_poll(&mut steps, 300);
             if v.phase == phase {
                 return v;
             }
