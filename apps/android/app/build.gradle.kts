@@ -44,8 +44,8 @@ tasks.named("preBuild") { dependsOn(buildRustCore, copyLicense) }
 // the same code). Both are written as literals because F-Droid's update checker reads them from
 // this file with a regular expression (UpdateCheckData in the F-Droid recipe); the check below
 // keeps the code in step with the name.
-val squibVersion = "0.1.1"
-val squibVersionCode = 101
+val squibVersion = "0.1.2"
+val squibVersionCode = 102
 squibVersion.split(".").map(String::toInt).let { (major, minor, patch) ->
     require(minor < 100 && patch < 100) { "minor and patch must be below 100" }
     require(squibVersionCode == major * 10_000 + minor * 100 + patch) {
@@ -69,7 +69,7 @@ val signReleaseWithDebugKey = (findProperty("squibSignReleaseWithDebugKey") as S
 android {
     // Provisional identifiers: the reverse-domain application ID is an open owner
     // decision (docs/squib/README). See docs/squib/decisions/ADR-014.
-    namespace = "net.digitalgrease.squib"
+    namespace = "dev.digitalgrease.squib"
     compileSdk = 37
     // Lets AGP strip debug symbols from the Rust library in the APK (unstripped copies stay
     // under build/intermediates for symbolication).
@@ -79,7 +79,7 @@ android {
     testBuildType = (findProperty("squibTestBuildType") as String?) ?: "debug"
 
     defaultConfig {
-        applicationId = "net.digitalgrease.squib"
+        applicationId = "dev.digitalgrease.squib"
         minSdk = 26
         targetSdk = 36
         versionCode = squibAbi?.let { squibVersionCode * 10 + abiNumbers.getValue(it) } ?: squibVersionCode
@@ -87,7 +87,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Long opt-in tests (the 30-minute capture soak) stay out of the default suite; see
         // CaptureSoakTest for how to run them.
-        testInstrumentationRunnerArguments["notAnnotation"] = "net.digitalgrease.squib.Soak"
+        testInstrumentationRunnerArguments["notAnnotation"] = "dev.digitalgrease.squib.Soak"
         ndk {
             abiFilters += buildAbis
         }

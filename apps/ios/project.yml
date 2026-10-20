@@ -3,13 +3,13 @@
 #   scripts/build-ios-core.sh sim && cd apps/ios && xcodegen generate
 name: Squib
 options:
-  bundleIdPrefix: net.digitalgrease
+  bundleIdPrefix: dev.digitalgrease
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.1.1"
+    MARKETING_VERSION: "0.1.2"
     CURRENT_PROJECT_VERSION: "1"
     # The generated bindings predate strict Swift 6 concurrency checking.
     SWIFT_VERSION: "5.0"
@@ -29,7 +29,7 @@ targets:
       - package: SquibKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.digitalgrease.squib
+        PRODUCT_BUNDLE_IDENTIFIER: dev.digitalgrease.squib
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: Squib
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"

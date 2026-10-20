@@ -16,7 +16,7 @@ final class TimerDriver {
         var keepScreenOn: Bool
     }
 
-    private let queue = DispatchQueue(label: "net.digitalgrease.squib.timer", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "dev.digitalgrease.squib.timer", qos: .userInteractive)
     private var timer: ParTimer?
     private var looping = false
     private let onUpdate: (Update) -> Void

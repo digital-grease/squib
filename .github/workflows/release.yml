@@ -45,8 +45,8 @@ jobs:
           [ "$TAG" = "v$version" ] || { echo "::error::tag $TAG does not match squibVersion $version"; fail=1; }
           [ "$literal_code" = "$code" ] || { echo "::error::squibVersionCode $literal_code does not match squibVersion $version (expected $code)"; fail=1; }
           [ "$cargo_version" = "$version" ] || { echo "::error::Cargo.toml workspace version $cargo_version does not match $version"; fail=1; }
-          grep -q "^CurrentVersion: $version$" fdroid/net.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersion is not $version"; fail=1; }
-          grep -q "^CurrentVersionCode: $((code * 10 + 3))$" fdroid/net.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersionCode is not $((code * 10 + 3))"; fail=1; }
+          grep -q "^CurrentVersion: $version$" fdroid/dev.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersion is not $version"; fail=1; }
+          grep -q "^CurrentVersionCode: $((code * 10 + 3))$" fdroid/dev.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersionCode is not $((code * 10 + 3))"; fail=1; }
           # F-Droid builds one APK per ABI with code*10 + 2 (arm64-v8a) and code*10 + 3 (x86_64),
           # and reads each APK's changelog by its own code.
           for c in "$code" "$((code * 10 + 2))" "$((code * 10 + 3))"; do

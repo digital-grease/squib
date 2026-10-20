@@ -22,7 +22,7 @@ use crate::registry;
 /// Called by the JVM with a valid `env` and a live `data` array reference.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "system" fn Java_net_digitalgrease_squib_audio_PcmBridge_nativePush(
+pub unsafe extern "system" fn Java_dev_digitalgrease_squib_audio_PcmBridge_nativePush(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,

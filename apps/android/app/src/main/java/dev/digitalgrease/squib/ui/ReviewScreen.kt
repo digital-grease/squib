@@ -1,0 +1,443 @@
+package dev.digitalgrease.squib.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import dev.digitalgrease.squib.core.EventRefFfi
+import dev.digitalgrease.squib.core.ReviewAction
+import dev.digitalgrease.squib.core.ReviewEvent
+import dev.digitalgrease.squib.core.ReviewView
+import dev.digitalgrease.squib.core.SquibController
+
+/**
+ * Review: original detections are never edited in place. Pending actions are applied
+ * together as one new revision; the previous revision remains in history.
+ */
+@Composable
+fun ReviewScreen(
+    c: SquibController,
+    d: dev.digitalgrease.squib.data.DataController,
+    runId: String,
+    onBack: () -> Unit,
+    onRepeat: () -> Unit,
+    onAddPhoto: () -> Unit,
+    onShare: (String) -> Unit,
+    onExportDiagnostic: () -> Unit = {},
+) {
+    var review by remember { mutableStateOf<ReviewView?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val pending = remember { mutableStateListOf<ReviewAction>() }
+    var manualText by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    var conditions by remember { mutableStateOf<dev.digitalgrease.squib.core.ConditionsView?>(null) }
+    LaunchedEffect(runId) {
+        c.loadReview(runId).onSuccess { review = it }.onFailure { error = it.message }
+        conditions = c.runConditions(runId)
+    }
+
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("review_screen")) {
+        BackButton("Back", "Back", onBack)
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        val r = review ?: return@Column
+        Text("Review", style = MaterialTheme.typography.headlineMedium)
+        Text(fmtDate(r.createdUtcMs))
+        FlowRow(Modifier.padding(vertical = 4.dp)) {
+            Badge(if (r.mode == "par_only") "Par-only" else "Live (experimental)")
+            Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
+            reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }
+            if (r.revisionNumber > 0u) Badge("Revision ${r.revisionNumber}")
+            if (r.uncommittedTailPossible) Badge("Events after last save may be missing", warning = true)
+        }
+        Text(startMethodLabel(r.startMethod), style = MaterialTheme.typography.bodyMedium)
+        Text("Clock: ${timestampQualityLabel(r.timestampQuality)}", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Times are displayed to 0.01 s. Display precision is not measured accuracy; timing on this phone is experimental.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+
+        Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Column(Modifier.padding(12.dp)) {
+                r.equipment?.let { LabeledValue("Equipment", it) }
+                LabeledValue("Shots", r.count.toString() + (r.expectedCount?.let { " (expected $it, hint only)" } ?: ""))
+                LabeledValue("First shot", if (r.originResolved) fmtSec(r.firstNs) else "Unavailable (no start reference)")
+                LabeledValue("Last shot", if (r.originResolved) fmtSec(r.lastNs) else "Unavailable")
+                LabeledValue("Splits", if (r.splitsNs.isEmpty()) "n/a" else r.splitsNs.joinToString("  ") { fmtSec(it).removeSuffix(" s") } + " s")
+                if (r.zeroSplits > 0u) Text("${r.zeroSplits} identical timestamps: insufficient resolution", color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Timeline(r)
+
+        if (r.quality.isNotEmpty()) {
+            Text("Quality", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            r.quality.forEach { q ->
+                Text("• ${q.label}${if (q.severity == "integrity") " (interrupts run)" else ""}" +
+                    (q.timelineNs?.let { " at ${fmtSec(it)}" } ?: "") + (if (q.detail.isNotBlank()) ": ${q.detail}" else ""))
+            }
+        }
+
+        if (r.revisionNumber > 0u) {
+            Text("Events", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+            r.events.forEach { e -> EventRow(e, pending) }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = manualText,
+                    onValueChange = { manualText = it },
+                    label = { Text("Add missed shot at (s)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).testTag("manual_time"),
+                )
+                Spacer(Modifier.padding(4.dp))
+                OutlinedButton(
+                    onClick = {
+                        manualText.toDoubleOrNull()?.takeIf { it >= 0 }?.let {
+                            pending += ReviewAction.AddManual((it * 1e9).toLong())
+                            manualText = ""
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("add_manual"),
+                ) { Text("Add") }
+            }
+            if (pending.isNotEmpty()) {
+                Text("${pending.size} pending correction(s)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val actions = pending.toList()
+                            scope.launch {
+                                c.applyReview(r.runId, r.revisionNumber, actions, null)
+                                    .onSuccess { review = it; pending.clear(); error = null }
+                                    .onFailure { error = it.message }
+                            }
+                        },
+                        modifier = Modifier.heightIn(min = 56.dp).testTag("save_corrections"),
+                    ) { Text("Save corrections") }
+                    OutlinedButton(onClick = { pending.clear() }, modifier = Modifier.heightIn(min = 56.dp)) { Text("Discard") }
+                }
+            }
+        } else {
+            Text("No detected events: this run has no microphone timeline.", modifier = Modifier.padding(top = 8.dp))
+        }
+
+        conditions?.let { cv ->
+            Text("Conditions at start", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+            Text(
+                if (cv.redacted) "Ages as of when the run started. Precise provenance not retained (location privacy setting)."
+                else "Ages as of when the run started.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            dev.digitalgrease.squib.conditions.FieldList(cv, java.util.Locale.getDefault().country == "US", null)
+            cv.attribution.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+
+        // Markers follow the latest revision, so reload after each review edit.
+        androidx.compose.runtime.key(r.revisionNumber) {
+            VideoSection(d, runId)
+            DiagnosticSection(d, runId, onExportDiagnostic)
+        }
+        ScoreCard(d, runId)
+        RoundsCard(d, runId, r.mode)
+        PhotosAndShare(d, runId, onAddPhoto, onShare, onDeleted = onBack)
+
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRepeat, modifier = Modifier.fillMaxWidth().height(64.dp)) { Text("REPEAT this setup", fontWeight = FontWeight.Black) }
+    }
+}
+
+@Composable
+private fun EventRow(e: ReviewEvent, pending: MutableList<ReviewAction>) {
+    val label = when (e.state) {
+        "accepted" -> if (e.origin == "manual") "Manual" else if (e.origin == "moved") "Accepted (moved)" else "Accepted"
+        "uncertain" -> "Uncertain"
+        else -> "Rejected"
+    }
+    Card(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(10.dp).semantics(mergeDescendants = true) {
+            contentDescription = "$label event at ${fmtSec(e.timelineNs)}"
+        }) {
+            Row {
+                Text(fmtSec(e.timelineNs), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Badge(label, warning = e.state != "accepted")
+            }
+            if (e.reasons.isNotEmpty()) Text(e.reasons.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+            e.detectorScore?.let { Text("Detector ranking score ${"%.2f".format(it)} (not a probability)", style = MaterialTheme.typography.bodySmall) }
+            FlowRow {
+                val seq = e.reference.sequence
+                if (seq != null && e.state != "accepted") {
+                    OutlinedButton(onClick = { pending += ReviewAction.Accept(seq) }, modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp)) { Text("Accept") }
+                }
+                if (seq != null && e.state != "rejected") {
+                    OutlinedButton(onClick = { pending += ReviewAction.Reject(seq) }, modifier = Modifier.padding(end = 6.dp).heightIn(min = 48.dp)) { Text("Reject") }
+                }
+                if (e.state == "accepted") {
+                    for ((label2, d) in listOf("−10 ms" to -10_000_000L, "−1 ms" to -1_000_000L, "+1 ms" to 1_000_000L, "+10 ms" to 10_000_000L)) {
+                        OutlinedButton(
+                            onClick = { pending += ReviewAction.Move(EventRefFfi(e.reference.kind, e.reference.sequence, e.reference.manualId), (e.timelineNs + d).coerceAtLeast(0)) },
+                            modifier = Modifier.padding(end = 4.dp).heightIn(min = 48.dp),
+                        ) { Text(label2) }
+                    }
+                }
+                val mid = e.reference.manualId
+                if (mid != null) {
+                    OutlinedButton(onClick = { pending += ReviewAction.RemoveManual(mid) }, modifier = Modifier.heightIn(min = 48.dp).spoken("Remove the shot you added")) { Text("Remove") }
+                }
+            }
+        }
+    }
+}
+
+/** Markers by state with distinct shapes, plus cue and quality markers and an "Energy" strip. */
+@Composable
+private fun Timeline(r: ReviewView) {
+    val events = r.events
+    val endNs = maxOf(
+        events.maxOfOrNull { it.timelineNs } ?: 0L,
+        r.energyStartNs + r.energyHopNs * r.energyDb.size,
+        1_000_000_000L,
+    )
+    val startNs = minOf(0L, r.energyStartNs)
+    val accent = MaterialTheme.colorScheme.primary
+    val warn = MaterialTheme.colorScheme.error
+    val fg = MaterialTheme.colorScheme.onSurface
+    Text("Energy (coarse, not a waveform)", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+    Canvas(
+        Modifier.fillMaxWidth().height(120.dp).semantics {
+            contentDescription = "Timeline with ${events.count { it.state == "accepted" }} accepted " +
+                "(${events.count { it.state == "accepted" && it.origin == "manual" }} added by you), " +
+                "${events.count { it.state == "uncertain" }} uncertain, ${events.count { it.state == "rejected" }} rejected events"
+        },
+    ) {
+        val w = size.width
+        val h = size.height
+        fun x(ns: Long) = ((ns - startNs).toFloat() / (endNs - startNs).toFloat()) * w
+        // Energy strip in the lower half: −80..0 dBFS.
+        r.energyDb.forEachIndexed { i, db ->
+            val t = r.energyStartNs + r.energyHopNs * i
+            val frac = ((db + 80f) / 80f).coerceIn(0f, 1f)
+            drawLine(fg.copy(alpha = 0.35f), Offset(x(t), h), Offset(x(t), h - frac * h * 0.5f), strokeWidth = 2f)
+        }
+        // Start reference.
+        drawLine(accent, Offset(x(0), 0f), Offset(x(0), h), strokeWidth = 3f)
+        r.cues.forEach { cue ->
+            cue.timelineNs?.let { t ->
+                drawLine(accent, Offset(x(t), 0f), Offset(x(t), h), strokeWidth = 2f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)))
+            }
+        }
+        r.quality.forEach { q -> q.timelineNs?.let { t -> drawRect(warn.copy(alpha = 0.3f), Offset(x(t), 0f), androidx.compose.ui.geometry.Size(6f, h)) } }
+        events.forEach { e ->
+            val cx = x(e.timelineNs)
+            when (e.state) {
+                // Shots you added are rings, not a lighter colour, so shape tells them apart.
+                "accepted" -> if (e.origin == "manual") {
+                    drawCircle(accent, 9f, Offset(cx, h * 0.25f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+                } else {
+                    drawCircle(accent, 10f, Offset(cx, h * 0.25f))
+                }
+                "uncertain" -> drawRect(warn, Offset(cx - 8f, h * 0.25f - 8f), androidx.compose.ui.geometry.Size(16f, 16f))
+                else -> drawLine(fg.copy(alpha = 0.6f), Offset(cx - 8f, h * 0.25f - 8f), Offset(cx + 8f, h * 0.25f + 8f), strokeWidth = 3f)
+            }
+        }
+    }
+    Text("● accepted   ○ added by you   ■ uncertain   ╲ rejected   ┆ cue   ▌ quality", style = MaterialTheme.typography.bodySmall)
+}
+
+
+@Composable
+private fun ScoreCard(d: dev.digitalgrease.squib.data.DataController, runId: String) {
+    var score by remember { mutableStateOf<dev.digitalgrease.squib.core.ScoreView?>(null) }
+    var profileId by remember { mutableStateOf<String?>(null) }
+    val counts = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    var complete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId, profileId) {
+        score = d.score(runId, profileId)
+        score?.let { s ->
+            counts.clear()
+            s.counts.forEach { counts[it.name] = it.count.toInt() }
+            complete = s.complete
+        }
+    }
+    val s = score ?: return
+    val profile = d.profiles.find { it.id == s.profileId }
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Score · ${s.profileTitle} (generic practice)", fontWeight = FontWeight.Bold)
+            FlowRow(Modifier.selectableGroup()) {
+                d.profiles.filter { !it.manual }.forEach { p ->
+                    androidx.compose.material3.FilterChip(selected = p.id == s.profileId, onClick = { profileId = p.id },
+                        label = { Text(p.title) }, modifier = Modifier.oneOf().padding(end = 6.dp))
+                }
+            }
+            Text(
+                when (s.status) {
+                    "complete" -> s.display ?: "Complete"
+                    "incomplete" -> "Incomplete: ${s.statusReason ?: ""}"
+                    else -> "Not valid: ${s.statusReason ?: ""}"
+                },
+                color = if (s.status == "complete") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("score_status"),
+            )
+            profile?.inputs?.forEach { input ->
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    val unit = when (input.kind) {
+                        "points" -> "${input.value} pts"
+                        "penalty_points" -> "${input.value} pts"
+                        else -> "+${input.value.toInt() / 1000.0} s"
+                    }
+                    Text("${input.name} ($unit)", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { counts[input.name] = ((counts[input.name] ?: 0) - 1).coerceAtLeast(0) }) { Text("−") }
+                    Text("${counts[input.name] ?: 0}", fontWeight = FontWeight.Bold, modifier = Modifier.testTag("count_${input.name}"))
+                    TextButton(onClick = { counts[input.name] = (counts[input.name] ?: 0) + 1 }, modifier = Modifier.testTag("inc_${input.name}")) { Text("+") }
+                }
+            }
+            if (profile?.inputs?.isNotEmpty() == true) {
+                LabeledToggle("All targets scored", complete, { complete = it }, checkbox = true, tag = "score_complete")
+                OutlinedButton(onClick = {
+                    scope.launch { d.saveScore(runId, s.profileId, counts.toMap(), complete).onSuccess { score = it } }
+                }, modifier = Modifier.heightIn(min = 48.dp).testTag("save_score")) { Text("Save score") }
+                Text("Scores are saved as revisions and never change shot times.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoundsCard(d: dev.digitalgrease.squib.data.DataController, runId: String, mode: String) {
+    var rv by remember { mutableStateOf<dev.digitalgrease.squib.core.RoundsView?>(null) }
+    var n by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId) {
+        rv = d.rounds(runId)
+        n = (rv?.confirmed ?: rv?.proposed ?: 0u).toInt()
+    }
+    val v = rv ?: return
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Rounds fired", fontWeight = FontWeight.Bold)
+            Text(
+                if (mode == "phone_live") "Suggested from accepted shots: ${v.proposed}. Adjust for malfunctions or missed detections."
+                else "Enter the rounds you fired (par-only and manual runs suggest none).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                TextButton(onClick = { n = (n - 1).coerceAtLeast(0) }) { Text("−") }
+                Text("$n", fontWeight = FontWeight.Bold)
+                TextButton(onClick = { n += 1 }) { Text("+") }
+                OutlinedButton(onClick = { scope.launch { rv = d.confirmRounds(runId, n) } }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (v.confirmed == null) "Confirm" else "Update")
+                }
+            }
+            v.confirmed?.let { Text("Confirmed: $it") }
+        }
+    }
+}
+
+@Composable
+private fun PhotosAndShare(
+    d: dev.digitalgrease.squib.data.DataController,
+    runId: String,
+    onAddPhoto: () -> Unit,
+    onShare: (String) -> Unit,
+    onDeleted: () -> Unit,
+) {
+    var photos by remember { mutableStateOf<List<dev.digitalgrease.squib.core.AttachmentView>>(emptyList()) }
+    var preview by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var annotating by remember { mutableStateOf<dev.digitalgrease.squib.core.AttachmentView?>(null) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(runId) { photos = d.attachments(runId) }
+    annotating?.let { p ->
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { annotating = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+                PhotoAnnotate(d, p, onClose = { annotating = null })
+            }
+        }
+    }
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Photos and sharing", fontWeight = FontWeight.Bold)
+            Text("${photos.size} target photo(s). Photos are copied into the app with location and camera metadata removed.", style = MaterialTheme.typography.bodySmall)
+            if (photos.isNotEmpty()) {
+                Text("Tap a photo to mark hits, misses, and notes.", style = MaterialTheme.typography.bodySmall)
+                PhotoThumbs(d, photos) { annotating = it }
+            }
+            FlowRow {
+                OutlinedButton(onClick = onAddPhoto, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) { Text("Add photo") }
+                OutlinedButton(onClick = { scope.launch { preview = d.shareJson(listOf(runId)) } }, modifier = Modifier.padding(end = 8.dp).heightIn(min = 48.dp)) {
+                    Text("Share result")
+                }
+                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Delete run", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+    preview?.let { json ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { preview = null },
+            confirmButton = { TextButton(onClick = { onShare(json); preview = null }) { Text("Share") } },
+            dismissButton = { TextButton(onClick = { preview = null }) { Text("Cancel") } },
+            title = { Text("Share preview") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text("Includes times, score, and conditions with their sources. Excludes location, station names, notes, photos, and identifiers. Visible landmarks in shared photos could still reveal a place.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(json, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+        )
+    }
+    if (confirmDelete) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; d.deleteRun(runId, onDeleted) }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            text = { Text("Delete this run, its corrections, score, and photos from this phone? Copies you already shared or backed up are not affected.") },
+        )
+    }
+}

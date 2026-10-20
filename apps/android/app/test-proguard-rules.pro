@@ -8,7 +8,7 @@
 # The test classes themselves are found by name and annotation: keep them unchanged. Only
 # the app under test is meant to be minified.
 -keep @org.junit.runner.RunWith class * { *; }
--keep class net.digitalgrease.squib.Soak
+-keep class dev.digitalgrease.squib.Soak
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -keep class org.junit.** { *; }
 -keep class androidx.test.** { *; }

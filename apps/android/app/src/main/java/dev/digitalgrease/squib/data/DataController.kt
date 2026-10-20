@@ -1,0 +1,532 @@
+package dev.digitalgrease.squib.data
+
+import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import java.io.File
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
+import java.util.concurrent.Executors
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import dev.digitalgrease.squib.BuildConfig
+import dev.digitalgrease.squib.SquibApp
+import dev.digitalgrease.squib.core.AnalyticsFilterFfi
+import dev.digitalgrease.squib.core.AnalyticsView
+import dev.digitalgrease.squib.core.ChecklistView
+import dev.digitalgrease.squib.core.CoachView
+import dev.digitalgrease.squib.core.PlanItemInput
+import dev.digitalgrease.squib.core.PlanSummaryView
+import dev.digitalgrease.squib.core.PlanView
+import dev.digitalgrease.squib.core.DrillInput
+import dev.digitalgrease.squib.core.DrillView
+import dev.digitalgrease.squib.core.ImportView
+import dev.digitalgrease.squib.core.RoundTotalsView
+import dev.digitalgrease.squib.core.ScoringProfileView
+import dev.digitalgrease.squib.core.ShooterView
+import dev.digitalgrease.squib.core.SquibException
+
+/**
+ * M3 data operations: drills, profiles, analytics, manual entry, attachments, backup,
+ * import, CSV, deletion, and the bug report. Engine calls run on one worker thread.
+ */
+class DataController(private val app: Application) : AndroidViewModel(app) {
+    private val engine = (app as SquibApp).engine
+    private val worker = Executors.newSingleThreadExecutor { Thread(it, "squib-data") }.asCoroutineDispatcher()
+    val attachmentRoot: File = File(app.filesDir, "attachments").also { it.mkdirs() }
+
+    private val _drills = MutableStateFlow<List<DrillView>>(emptyList())
+    val drills: StateFlow<List<DrillView>> = _drills.asStateFlow()
+    private val _shooters = MutableStateFlow<List<ShooterView>>(emptyList())
+    val shooters: StateFlow<List<ShooterView>> = _shooters.asStateFlow()
+    private val _analytics = MutableStateFlow<AnalyticsView?>(null)
+    val analytics: StateFlow<AnalyticsView?> = _analytics.asStateFlow()
+    private val _rounds = MutableStateFlow<RoundTotalsView?>(null)
+    val rounds: StateFlow<RoundTotalsView?> = _rounds.asStateFlow()
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+    private val _pendingImport = MutableStateFlow<PendingImport?>(null)
+    val pendingImport: StateFlow<PendingImport?> = _pendingImport.asStateFlow()
+    private val _passphrasePrompt = MutableStateFlow<PassphrasePrompt?>(null)
+    /** A picked backup is encrypted and waits for its passphrase. */
+    val passphrasePrompt: StateFlow<PassphrasePrompt?> = _passphrasePrompt.asStateFlow()
+    private val _equipment = MutableStateFlow<List<dev.digitalgrease.squib.core.EquipmentView>>(emptyList())
+    val equipment: StateFlow<List<dev.digitalgrease.squib.core.EquipmentView>> = _equipment.asStateFlow()
+    val equipmentCategories: List<String> = engine.equipmentCategories()
+    private val _sessions = MutableStateFlow<List<dev.digitalgrease.squib.core.SessionView>>(emptyList())
+    val sessions: StateFlow<List<dev.digitalgrease.squib.core.SessionView>> = _sessions.asStateFlow()
+    private val _plans = MutableStateFlow<List<PlanSummaryView>>(emptyList())
+    val plans: StateFlow<List<PlanSummaryView>> = _plans.asStateFlow()
+    private val _coach = MutableStateFlow<CoachView?>(null)
+    val coach: StateFlow<CoachView?> = _coach.asStateFlow()
+    private val _filter = MutableStateFlow(AnalyticsFilterFfi(null, null, null, true, false, false, false, null))
+    val filter: StateFlow<AnalyticsFilterFfi> = _filter.asStateFlow()
+
+    val profiles: List<ScoringProfileView> = engine.scoringProfiles()
+
+    init {
+        // Remove recording files no run owns (for example, the app was closed mid-run).
+        viewModelScope.launch(worker) { runCatching { engine.cleanupDiagnosticPartials(attachmentRoot.absolutePath) } }
+        reload()
+    }
+
+    fun clearMessage() {
+        _message.value = null
+    }
+
+    private fun tz(): Int = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
+
+    fun reload() {
+        viewModelScope.launch(worker) { refresh() }
+    }
+
+    private fun refresh() {
+        _drills.value = engine.listDrills()
+        _shooters.value = engine.listShooters()
+        _rounds.value = engine.roundTotals()
+        _analytics.value = runCatching { engine.analytics(_filter.value) }.getOrNull()
+        _plans.value = runCatching { engine.listPlans() }.getOrDefault(emptyList())
+        _coach.value = engine.coach()
+        _sessions.value = runCatching { engine.listSessions(200u) }.getOrDefault(emptyList())
+        _equipment.value = runCatching { engine.listEquipment() }.getOrDefault(emptyList())
+    }
+
+    private fun act(f: () -> Unit) {
+        viewModelScope.launch(worker) {
+            try {
+                f()
+            } catch (e: SquibException) {
+                _message.value = e.message
+            } catch (e: Exception) {
+                _message.value = "Failed: ${e.message}"
+            }
+            refresh()
+        }
+    }
+
+    fun setFilter(f: AnalyticsFilterFfi) {
+        _filter.value = f
+        reload()
+    }
+
+    // Drills
+    fun createDrill(d: DrillInput) = act { engine.createDrill(d, System.currentTimeMillis()) }
+    fun editDrill(id: String, d: DrillInput) = act { engine.editDrill(id, d, System.currentTimeMillis()) }
+    fun archiveDrill(id: String) = act { engine.archiveDrill(id) }
+    suspend fun drillFile(d: DrillView): ByteArray = withContext(worker) { engine.drillFile(d.drillId, d.version) }
+
+    /** QR code for a drill, or the reason (usually too long: share it as a file). */
+    suspend fun drillQr(d: DrillView): Result<dev.digitalgrease.squib.core.QrCodeView> =
+        withContext(worker) { runCatching { engine.drillQr(d.drillId, d.version) } }
+
+    /** What a scanned code would import; nothing is saved. */
+    suspend fun previewDrillQr(text: String): Result<DrillView> =
+        withContext(worker) { runCatching { engine.previewDrillQr(text, System.currentTimeMillis()) } }
+
+    /** Latest marks on a photo (plan phase 4.2). */
+    suspend fun photoAnnotation(attachmentId: String): Result<dev.digitalgrease.squib.core.PhotoAnnotationView> =
+        withContext(worker) { runCatching { engine.photoAnnotation(attachmentId) } }
+
+    /** Save marks as a new version; fails instead of overwriting if someone saved since [base]. */
+    suspend fun savePhotoAnnotation(
+        attachmentId: String,
+        base: UInt?,
+        marks: List<dev.digitalgrease.squib.core.MarkView>,
+        note: String,
+    ): Result<dev.digitalgrease.squib.core.PhotoAnnotationView> =
+        withContext(worker) { runCatching { engine.savePhotoAnnotation(attachmentId, base, marks, note, System.currentTimeMillis()) } }
+
+    /** Photo file for an attachment, inside the app's attachment folder only. */
+    fun attachmentFile(relativePath: String): File? {
+        val root = attachmentRoot.canonicalFile
+        val f = File(root, relativePath).canonicalFile
+        return f.takeIf { it.path.startsWith(root.path + File.separator) && it.isFile }
+    }
+
+    /** Save a scanned drill (validated data only); [done] gets the new drill, or null. */
+    fun importDrillQr(text: String, done: (DrillView?) -> Unit) {
+        viewModelScope.launch(worker) {
+            val v = try {
+                engine.importDrillQr(text, System.currentTimeMillis())
+            } catch (e: SquibException) {
+                _message.value = e.message
+                null
+            }
+            refresh()
+            withContext(kotlinx.coroutines.Dispatchers.Main) { done(v) }
+        }
+    }
+
+    fun importDrill(uri: Uri) = act {
+        val bytes = app.contentResolver.openInputStream(uri)?.use { s -> s.readNBytesCompat(16 * 1024 + 1) } ?: ByteArray(0)
+        engine.importDrillFile(bytes, System.currentTimeMillis())
+        _message.value = "Drill imported."
+    }
+
+    // Profiles
+    fun addShooter(name: String) = act { engine.addShooter(name, System.currentTimeMillis()) }
+    fun setActiveShooter(id: String) = act { engine.setActiveShooter(id) }
+
+    // Manual entry (A20)
+    fun addManual(label: String, precisionMs: Int, times: String, drill: DrillView?, planItemId: String? = null, onDone: (String) -> Unit) = act {
+        val id = engine.addManualRun(
+            label, precisionMs.toUInt(), times, drill?.drillId, drill?.version,
+            System.currentTimeMillis(), tz(), "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+        )
+        planItemId?.let { engine.linkRunToItem(it, id) }
+        viewModelScope.launch { onDone(id) }
+    }
+
+    // Equipment profiles
+    fun addEquipment(name: String, category: String, notes: String) = act { engine.addEquipment(name, category, notes, System.currentTimeMillis()) }
+    fun editEquipment(id: String, name: String, category: String, notes: String) =
+        act { engine.editEquipment(id, name, category, notes, System.currentTimeMillis()) }
+    fun archiveEquipment(id: String) = act { engine.archiveEquipment(id) }
+    fun setActiveEquipment(id: String?) = act { engine.setActiveEquipment(id) }
+
+    // Sessions (range visits)
+    suspend fun sessionSets(id: String): List<dev.digitalgrease.squib.core.StringSetView> =
+        withContext(worker) { runCatching { engine.sessionSets(id) }.getOrDefault(emptyList()) }
+
+    suspend fun planItemSet(itemId: String): dev.digitalgrease.squib.core.StringSetView? =
+        withContext(worker) { runCatching { engine.planItemSet(itemId) }.getOrNull() }
+
+    suspend fun sessionRuns(id: String): List<dev.digitalgrease.squib.core.RunListItem> =
+        withContext(worker) { runCatching { engine.sessionRuns(id) }.getOrDefault(emptyList()) }
+
+    fun setSessionNotes(id: String, notes: String) = act { engine.setSessionNotes(id, notes) }
+    fun setSessionCost(id: String, minor: Long?, currency: String?) = act { engine.setSessionCost(id, minor, currency) }
+    fun endSession(id: String) = act { engine.endSession(id, System.currentTimeMillis()) }
+    fun deleteSession(id: String, onDone: () -> Unit) = act {
+        val d = engine.deleteSession(id)
+        d.attachmentPaths.forEach { deleteAttachmentFile(it) }
+        _message.value = "Deleted this visit and its ${d.runs} run(s). Copies you exported or OS backups are not affected."
+        viewModelScope.launch { onDone() }
+    }
+
+    // Coach rotation (M4)
+    fun setCoach(enabled: Boolean, squad: List<String>) = act { engine.setCoach(enabled, squad) }
+    fun advanceShooter() = act { engine.advanceShooter() }
+
+    // Day plans (M4)
+    private fun localMinutes(): UInt {
+        val c = java.util.Calendar.getInstance()
+        return (c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)).toUInt()
+    }
+
+    fun today(): String = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
+
+    suspend fun loadPlan(id: String): PlanView? = withContext(worker) { runCatching { engine.loadPlan(id, localMinutes()) }.getOrNull() }
+
+    suspend fun drillVersion(id: String, version: UInt): DrillView? =
+        withContext(worker) { runCatching { engine.drillVersion(id, version) }.getOrNull() }
+
+    fun createPlan(title: String, date: String, kind: String, onDone: (String) -> Unit) = act {
+        val id = engine.createPlan(title, date, kind, true, System.currentTimeMillis())
+        viewModelScope.launch { onDone(id) }
+    }
+
+    /** Plan edits run on the worker, then `after` runs on the main thread (usually a reload). */
+    fun planEdit(after: () -> Unit, f: () -> Unit) = act {
+        f()
+        viewModelScope.launch { after() }
+    }
+
+    fun addPlanItem(planId: String, input: PlanItemInput, after: () -> Unit) = planEdit(after) { engine.addPlanItem(planId, input) }
+    fun setPlanNotes(planId: String, notes: String, after: () -> Unit) = planEdit(after) { engine.setPlanNotes(planId, notes) }
+    fun setItemNotes(id: String, notes: String, after: () -> Unit) = planEdit(after) { engine.setItemNotes(id, notes) }
+    fun setItemSkipped(id: String, skipped: Boolean, after: () -> Unit) = planEdit(after) { engine.setItemSkipped(id, skipped) }
+    fun movePlanItem(id: String, up: Boolean, after: () -> Unit) = planEdit(after) { engine.movePlanItem(id, up) }
+    fun deletePlanItem(id: String, after: () -> Unit) = planEdit(after) { engine.deletePlanItem(id) }
+    fun archivePlan(id: String, after: () -> Unit) = planEdit(after) { engine.archivePlan(id) }
+    fun addChecklistItem(planId: String?, text: String, after: () -> Unit) = planEdit(after) { engine.addChecklistItem(planId, text) }
+    fun setChecked(id: String, checked: Boolean, after: () -> Unit) = planEdit(after) { engine.setChecklistChecked(id, checked) }
+    fun deleteChecklistItem(id: String, after: () -> Unit) = planEdit(after) { engine.deleteChecklistItem(id) }
+    suspend fun checklistTemplate(): List<ChecklistView> = withContext(worker) { runCatching { engine.checklistTemplate() }.getOrDefault(emptyList()) }
+
+    // Per-run review data
+    suspend fun score(runId: String, profileId: String?): dev.digitalgrease.squib.core.ScoreView? =
+        withContext(worker) { runCatching { engine.runScore(runId, profileId) }.getOrNull() }
+
+    suspend fun saveScore(runId: String, profileId: String, counts: Map<String, Int>, complete: Boolean): Result<dev.digitalgrease.squib.core.ScoreView> =
+        withContext(worker) {
+            runCatching {
+                engine.setScore(
+                    runId, profileId, counts.map { dev.digitalgrease.squib.core.ScoreCount(it.key, it.value.toUInt()) },
+                    complete, null, "", System.currentTimeMillis(),
+                )
+            }
+        }
+
+    suspend fun rounds(runId: String): dev.digitalgrease.squib.core.RoundsView? =
+        withContext(worker) { runCatching { engine.runRounds(runId) }.getOrNull() }
+
+    suspend fun confirmRounds(runId: String, n: Int): dev.digitalgrease.squib.core.RoundsView? =
+        withContext(worker) { runCatching { engine.confirmRounds(runId, n.toUInt(), System.currentTimeMillis()) }.getOrNull() }
+
+    suspend fun attachments(runId: String): List<dev.digitalgrease.squib.core.AttachmentView> =
+        withContext(worker) { engine.runAttachments(runId) }
+
+    suspend fun videos(runId: String): List<dev.digitalgrease.squib.core.VideoClipView> =
+        withContext(worker) { runCatching { engine.runVideos(runId) }.getOrDefault(emptyList()) }
+
+    suspend fun shareJson(runIds: List<String>): String = withContext(worker) { engine.shareResults(runIds) }
+
+    // Rounds
+    fun setCost(minor: Long?, currency: String?) = act { engine.setRoundCost(minor, currency) }
+
+    /** Copy a picked photo into app storage, re-encoded as JPEG so EXIF/GPS metadata is dropped. */
+    fun addPhoto(runId: String, uri: Uri, onDone: () -> Unit) = act {
+        val cr = app.contentResolver
+        // Bounds first, so very large photos are decoded at a reduced size.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val opts = BitmapFactory.Options().apply { inSampleSize = PhotoPrep.sampleSize(bounds.outWidth, bounds.outHeight) }
+        val decoded: Bitmap = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            ?: throw IllegalStateException("could not read image")
+        // Apply the camera's orientation to the pixels, because re-encoding drops the EXIF
+        // tag that told viewers how to rotate it (along with GPS and other metadata).
+        val orientation = cr.openInputStream(uri)?.use {
+            runCatching {
+                android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)
+            }.getOrDefault(android.media.ExifInterface.ORIENTATION_NORMAL)
+        } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+        val t = PhotoPrep.transform(orientation)
+        val bmp = if (t.isIdentity) decoded else {
+            val m = android.graphics.Matrix().apply {
+                if (t.mirror) postScale(-1f, 1f)
+                postRotate(t.rotateDeg.toFloat())
+            }
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, true).also { if (it !== decoded) decoded.recycle() }
+        }
+        val rel = "photos/${UUID.randomUUID()}.jpg"
+        val dest = File(attachmentRoot, rel).also { it.parentFile?.mkdirs() }
+        val tmp = File(dest.path + ".partial")
+        tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        tmp.renameTo(dest)
+        engine.registerAttachment(runId, attachmentRoot.absolutePath, rel, "image/jpeg", true, System.currentTimeMillis())
+        viewModelScope.launch { onDone() }
+    }
+
+    // Backup / import / CSV (A17); optional passphrase encryption (plan 5.7)
+    fun exportBackup(target: Uri, includePhotos: Boolean, includeAudio: Boolean, passphrase: String?) = act {
+        val tmp = File(app.cacheDir, if (passphrase != null) "squib-backup.zip.age" else "squib-backup.zip")
+        try {
+            val v = engine.exportBackup(
+                tmp.absolutePath, attachmentRoot.absolutePath, includePhotos, includeAudio, BuildConfig.VERSION_NAME,
+                System.currentTimeMillis(), passphrase,
+            )
+            app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+            val extras = listOfNotNull(
+                "saved places or location detail".takeIf { v.containsLocation },
+                "diagnostic audio recordings".takeIf { v.containsAudio },
+            )
+            val counts = "${v.runs} runs, ${v.attachments} files, ${v.bytes / 1024u} KB"
+            _message.value = if (v.encrypted) {
+                "Encrypted backup saved: $counts. It can be restored only with its passphrase, which cannot be recovered if lost."
+            } else {
+                "Backup saved: $counts. It is not encrypted" +
+                    (if (extras.isEmpty()) "." else " and contains ${extras.joinToString(" and ")}.")
+            }
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    // Diagnostic recordings (M5)
+    suspend fun diagnostic(runId: String): dev.digitalgrease.squib.core.DiagnosticView? =
+        withContext(worker) { runCatching { engine.runDiagnostic(runId) }.getOrNull() }
+
+    suspend fun diagnosticPreview(runId: String): dev.digitalgrease.squib.core.DiagnosticPreview? =
+        withContext(worker) { runCatching { engine.diagnosticPreview(runId) }.getOrNull() }
+
+    fun deleteDiagnostic(runId: String, onDone: () -> Unit) = act {
+        engine.deleteDiagnostic(runId)?.let { deleteAttachmentFile(it) }
+        viewModelScope.launch { onDone() }
+    }
+
+    /** Build the export in private cache, copy it to the file the user picked, remove the cache copy. */
+    fun exportDiagnostic(runId: String, target: Uri, consent: Boolean) = act {
+        val tmp = File(app.cacheDir, "squib-diagnostic.zip")
+        try {
+            val v = engine.exportDiagnostic(
+                runId, attachmentRoot.absolutePath, tmp.absolutePath, consent, BuildConfig.VERSION_NAME, System.currentTimeMillis(),
+            )
+            app.contentResolver.openOutputStream(target)?.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+            _message.value = "Diagnostic export saved (${v.bytes / 1024u} KB, ${v.durationMs / 1000} s of audio, ${v.acceptedEvents} labelled shots). " +
+                "Nothing was sent anywhere; share the file only with people you choose."
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    fun exportCsv(target: Uri) = act {
+        val csv = engine.exportCsv()
+        app.contentResolver.openOutputStream(target)?.use { it.write(csv.toByteArray()) }
+        _message.value = "CSV exported."
+    }
+
+    fun previewImport(source: Uri) = act {
+        cancelImport()
+        val tmp = File(app.cacheDir, "squib-import.bin")
+        app.contentResolver.openInputStream(source)?.use { input ->
+            tmp.outputStream().use { out ->
+                // 512 MB of backup, plus room for the encryption overhead (16 bytes per 64 KB).
+                val copied = input.copyToLimited(out, 513L * 1024 * 1024)
+                if (!copied) throw IllegalStateException("backup is larger than 512 MB")
+            }
+        }
+        if (engine.backupIsEncrypted(tmp.absolutePath)) {
+            _passphrasePrompt.value = PassphrasePrompt(tmp)
+            return@act
+        }
+        val v = engine.previewImport(tmp.absolutePath, app.cacheDir.absolutePath, null)
+        _pendingImport.value = PendingImport(tmp, v, null)
+    }
+
+    /** Decrypt and check a picked encrypted backup; a wrong passphrase keeps the prompt open. */
+    fun unlockImport(passphrase: String) {
+        val prompt = _passphrasePrompt.value ?: return
+        _passphrasePrompt.value = prompt.copy(checking = true, error = null)
+        viewModelScope.launch(worker) {
+            try {
+                val v = engine.previewImport(prompt.file.absolutePath, app.cacheDir.absolutePath, passphrase)
+                _passphrasePrompt.value = null
+                _pendingImport.value = PendingImport(prompt.file, v, passphrase)
+            } catch (e: Exception) {
+                _passphrasePrompt.value = prompt.copy(checking = false, error = e.message ?: "Could not open the backup.")
+            }
+        }
+    }
+
+    fun confirmImport() = act {
+        val p = _pendingImport.value ?: return@act
+        _pendingImport.value = null
+        try {
+            val v = engine.importBackup(p.file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, p.passphrase)
+            _message.value = "Imported ${v.runsNew} new runs (${v.runsAlreadyPresent} already present), ${v.attachmentsRestored} photos and videos."
+        } finally {
+            p.file.delete()
+        }
+    }
+
+    /** Import a conflicting backup as a copy: added alongside, nothing local overwritten. */
+    fun confirmImportCopy() = act {
+        val p = _pendingImport.value ?: return@act
+        _pendingImport.value = null
+        try {
+            val v = engine.importBackupCopy(
+                p.file.absolutePath, app.cacheDir.absolutePath, attachmentRoot.absolutePath, System.currentTimeMillis(), p.passphrase,
+            )
+            _message.value = "Imported a copy: ${v.runsNew} runs and ${v.attachmentsRestored} files added with new ids. Nothing already on this phone was changed."
+        } finally {
+            p.file.delete()
+        }
+    }
+
+    fun cancelImport() {
+        _pendingImport.value?.file?.delete()
+        _pendingImport.value = null
+        _passphrasePrompt.value?.file?.delete()
+        _passphrasePrompt.value = null
+    }
+
+    // Deletion
+    fun deleteRun(runId: String, onDone: () -> Unit) = act {
+        val d = engine.deleteRun(runId)
+        d.attachmentPaths.forEach { deleteAttachmentFile(it) }
+        viewModelScope.launch { onDone() }
+    }
+
+    fun deleteAll() = act {
+        val d = engine.deleteAllHistory()
+        d.attachmentPaths.forEach { deleteAttachmentFile(it) }
+        _message.value = "Deleted ${d.runs} runs (with their photos, videos, and recordings) and all saved places, drills, ballistics loads, range cards, and cached weather. Copies you exported or OS backups are not affected."
+    }
+
+    /** Delete an app-owned attachment, refusing any path that resolves outside the root. */
+    private fun deleteAttachmentFile(relative: String) {
+        val root = attachmentRoot.canonicalFile
+        val f = File(root, relative).canonicalFile
+        if (f.path.startsWith(root.path + File.separator)) f.delete()
+    }
+
+    // Bug report
+    suspend fun issueReport(): IssueReport.Result = withContext(worker) {
+        val device = IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL)
+        val android = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        val version = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
+        IssueReport.build(device, android, version, engine.diagnosticReport(device, android, version))
+    }
+
+    /** Compatibility report text for the user to preview (plan phase 4.3). */
+    suspend fun compatibilityReport(placement: String, environment: String, verdict: String, comment: String): String =
+        withContext(worker) {
+            engine.compatibilityReport(
+                dev.digitalgrease.squib.core.CompatInput(
+                    IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL),
+                    "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                    "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+                    placement, environment, verdict, comment, System.currentTimeMillis(),
+                ),
+            ).text
+        }
+
+    /** Pre-filled GitHub compatibility form for a previewed report. */
+    fun compatibilityIssue(report: String): IssueReport.Result = IssueReport.buildCompatibility(
+        IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL),
+        "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+        "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}",
+        report,
+    )
+
+    suspend fun reportText(): String = withContext(worker) {
+        val device = IssueReport.formatDevice(Build.MANUFACTURER, Build.MODEL)
+        engine.diagnosticReport(device, "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", BuildConfig.VERSION_NAME)
+    }
+
+    override fun onCleared() {
+        worker.close()
+    }
+}
+
+private fun java.io.InputStream.readNBytesCompat(n: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buf = ByteArray(8192)
+    var total = 0
+    while (total < n) {
+        val r = read(buf, 0, minOf(buf.size, n - total))
+        if (r < 0) break
+        out.write(buf, 0, r)
+        total += r
+    }
+    return out.toByteArray()
+}
+
+/** Copy at most `limit` bytes; returns false if the source was larger. */
+private fun java.io.InputStream.copyToLimited(out: java.io.OutputStream, limit: Long): Boolean {
+    val buf = ByteArray(64 * 1024)
+    var total = 0L
+    while (true) {
+        val r = read(buf)
+        if (r < 0) return true
+        total += r
+        if (total > limit) return false
+        out.write(buf, 0, r)
+    }
+}
+
+/** A checked backup waiting for the user to confirm. The passphrase (for an encrypted
+ *  backup) is held in memory only until the import is confirmed or cancelled. */
+data class PendingImport(val file: File, val view: ImportView, val passphrase: String?)
+
+data class PassphrasePrompt(val file: File, val checking: Boolean = false, val error: String? = null)
