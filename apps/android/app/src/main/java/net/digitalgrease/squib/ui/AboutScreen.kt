@@ -85,7 +85,7 @@ private fun AboutMain(onBack: () -> Unit, onOpenLink: (String) -> Unit, onLicenc
         Text(coreVersions().joinToString(" · "), style = MaterialTheme.typography.bodySmall)
 
         Section("Free software") {
-            Text("Copyright © 2026 the Squib contributors")
+            Text("Copyright © 2026 digital-grease")
             Text(
                 "Squib is free software: you can redistribute it and/or modify it under the terms of the GNU Affero " +
                     "General Public License as published by the Free Software Foundation, either version 3 of the " +

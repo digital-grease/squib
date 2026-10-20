@@ -167,6 +167,18 @@ cd apps/android
 
 Signing material never enters the repository. To sign, either create `apps/android/keystore.properties` (git-ignored) with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`, or set `SQUIB_KEYSTORE`, `SQUIB_KEYSTORE_PASSWORD`, `SQUIB_KEY_ALIAS` and `SQUIB_KEY_PASSWORD`. Without either, the build produces `app-release-unsigned.apk`, as CI does.
 
+### Releasing
+
+GitHub Release APKs are signed with the Squib release key; F-Droid builds from source and signs with its own key. The key is created once and kept offline, outside the repository:
+
+```sh
+keytool -genkey -v -keystore ~/git/digital-grease/keystores/squib-release.jks \
+  -keyalg RSA -keysize 4096 -validity 10000 -alias squib
+keytool -list -v -keystore ~/git/digital-grease/keystores/squib-release.jks   # note the SHA-256 fingerprint
+```
+
+The release workflow (`.github/workflows/release.yml`) runs on a `v*` tag. It checks that the tag, `squibVersion`, the Rust workspace version, the F-Droid recipe and the fastlane changelog agree, runs the Rust tests, builds and signs the APK, checks its certificate against the `RELEASE_CERT_SHA256` repository variable, and attaches the APK and its SHA-256 to a draft GitHub Release for review. It needs the repository secrets `RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD`.
+
 The About screen's third-party licence notices (`app/src/main/assets/third_party_notices.json`) are generated from the Rust and Android dependency graphs: after changing a dependency, run `python3 scripts/third_party_notices.py` (CI fails while they are out of date).
 
 The version is set once, as `squibVersion` (`MAJOR.MINOR.PATCH`) in `apps/android/app/build.gradle.kts`; the version code is derived from it (`MAJOR*10000 + MINOR*100 + PATCH`), so a source build always gets the same code. The R8 mapping for each release build is in `app/build/outputs/mapping/release/mapping.txt`.

@@ -79,9 +79,8 @@ jobs:
         run: ./gradlew :app:assembleDebug
       - name: Assemble minified release APK (unsigned)
         working-directory: apps/android
-        # R8 with the keep rules in app/proguard-rules.pro. No signing material exists in CI,
-        # so the APK is unsigned; it is checked, not uploaded (distribution needs separate
-        # authorization).
+        # R8 with the keep rules in app/proguard-rules.pro. CI has no signing material, so the
+        # APK is unsigned; it is checked, not uploaded (signed builds come from release.yml).
         run: |
           ./gradlew :app:assembleRelease
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
