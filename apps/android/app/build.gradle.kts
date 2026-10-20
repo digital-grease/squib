@@ -5,6 +5,14 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// ABIs: by default one APK holds arm64-v8a (devices) and x86_64 (emulators). F-Droid builds one
+// APK per ABI with -PsquibAbi=<abi>; each gets the release's version code times ten plus the
+// ABI's number below, so the per-ABI codes are distinct and above the universal one.
+val abiNumbers = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86_64" to 3)
+val squibAbi = findProperty("squibAbi") as String?
+val buildAbis = squibAbi?.let { listOf(it) } ?: listOf("arm64-v8a", "x86_64")
+require(squibAbi == null || squibAbi in listOf("arm64-v8a", "x86_64")) { "unsupported squibAbi $squibAbi" }
+
 // Rust core: cross-compiled with cargo-ndk and bound with UniFFI before every build.
 // Set -PsquibSkipRust=true to reuse previously built libraries (e.g. offline iteration).
 val repoRoot = rootProject.projectDir.parentFile.parentFile
@@ -14,7 +22,7 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
     description = "Build libsquib_mobile.so for Android ABIs and generate Kotlin bindings"
     onlyIf { (findProperty("squibSkipRust") as String?) != "true" }
     workingDir = repoRoot
-    commandLine("bash", "scripts/build-android-core.sh", rustProfile)
+    commandLine(listOf("bash", "scripts/build-android-core.sh", rustProfile) + buildAbis)
     inputs.dir(File(repoRoot, "crates"))
     inputs.file(File(repoRoot, "Cargo.lock"))
     inputs.file(File(repoRoot, "scripts/build-android-core.sh"))
@@ -30,13 +38,19 @@ val copyLicense = tasks.register<Copy>("copyLicense") {
 }
 tasks.named("preBuild") { dependsOn(buildRustCore, copyLicense) }
 
-// Version policy (ADR-058): versionName is MAJOR.MINOR.PATCH and versionCode is derived from
-// it, so each release has a unique, increasing code that does not depend on the build
-// machine, the clock or git history (F-Droid builds from source and must get the same code).
-val squibVersion = "0.1.0"
-val squibVersionCode = squibVersion.split(".").map(String::toInt).let { (major, minor, patch) ->
+// Version policy (ADR-058): versionName is MAJOR.MINOR.PATCH and versionCode is
+// MAJOR*10000 + MINOR*100 + PATCH, so each release has a unique, increasing code that does not
+// depend on the build machine, the clock or git history (F-Droid builds from source and must get
+// the same code). Both are written as literals because F-Droid's update checker reads them from
+// this file with a regular expression (UpdateCheckData in the F-Droid recipe); the check below
+// keeps the code in step with the name.
+val squibVersion = "0.1.1"
+val squibVersionCode = 101
+squibVersion.split(".").map(String::toInt).let { (major, minor, patch) ->
     require(minor < 100 && patch < 100) { "minor and patch must be below 100" }
-    major * 10_000 + minor * 100 + patch
+    require(squibVersionCode == major * 10_000 + minor * 100 + patch) {
+        "squibVersionCode $squibVersionCode does not match squibVersion $squibVersion"
+    }
 }
 
 // Release signing comes only from outside the repository: a git-ignored
@@ -68,14 +82,14 @@ android {
         applicationId = "net.digitalgrease.squib"
         minSdk = 26
         targetSdk = 36
-        versionCode = squibVersionCode
+        versionCode = squibAbi?.let { squibVersionCode * 10 + abiNumbers.getValue(it) } ?: squibVersionCode
         versionName = squibVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Long opt-in tests (the 30-minute capture soak) stay out of the default suite; see
         // CaptureSoakTest for how to run them.
         testInstrumentationRunnerArguments["notAnnotation"] = "net.digitalgrease.squib.Soak"
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += buildAbis
         }
     }
 

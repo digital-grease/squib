@@ -39,13 +39,19 @@ jobs:
           test -n "$version" || { echo "::error::squibVersion not found in build.gradle.kts"; exit 1; }
           IFS=. read -r major minor patch <<< "$version"
           code=$((major * 10000 + minor * 100 + patch))
+          literal_code=$(sed -n 's/^val squibVersionCode = \([0-9]*\)$/\1/p' apps/android/app/build.gradle.kts)
           cargo_version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
           fail=0
           [ "$TAG" = "v$version" ] || { echo "::error::tag $TAG does not match squibVersion $version"; fail=1; }
+          [ "$literal_code" = "$code" ] || { echo "::error::squibVersionCode $literal_code does not match squibVersion $version (expected $code)"; fail=1; }
           [ "$cargo_version" = "$version" ] || { echo "::error::Cargo.toml workspace version $cargo_version does not match $version"; fail=1; }
           grep -q "^CurrentVersion: $version$" fdroid/net.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersion is not $version"; fail=1; }
-          grep -q "^CurrentVersionCode: $code$" fdroid/net.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersionCode is not $code"; fail=1; }
-          test -s "fastlane/metadata/android/en-US/changelogs/$code.txt" || { echo "::error::fastlane changelog $code.txt is missing"; fail=1; }
+          grep -q "^CurrentVersionCode: $((code * 10 + 3))$" fdroid/net.digitalgrease.squib.yml || { echo "::error::fdroid recipe CurrentVersionCode is not $((code * 10 + 3))"; fail=1; }
+          # F-Droid builds one APK per ABI with code*10 + 2 (arm64-v8a) and code*10 + 3 (x86_64),
+          # and reads each APK's changelog by its own code.
+          for c in "$code" "$((code * 10 + 2))" "$((code * 10 + 3))"; do
+            test -s "fastlane/metadata/android/en-US/changelogs/$c.txt" || { echo "::error::fastlane changelog $c.txt is missing"; fail=1; }
+          done
           [ "$fail" = 0 ] || exit 1
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
