@@ -23,16 +23,20 @@ Builds:
     sudo:
       - apt-get update
       - apt-get install -y build-essential
+    gradle:
+      - yes
     srclibs:
       - rustup@1.28.2
     prebuild:
-      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain 1.95.0 --target aarch64-linux-android,x86_64-linux-android
+      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain none
+      - cd ../../.. && $HOME/.cargo/bin/rustup toolchain install
       - $HOME/.cargo/bin/cargo install cargo-ndk --version 4.1.2 --locked
     build:
       - export PATH=$HOME/.cargo/bin:$PATH
-    gradle:
-      - yes
+      - bash ../../../scripts/build-android-core.sh release
     ndk: r28c
+    gradleprops:
+      - squibSkipRust=true
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
