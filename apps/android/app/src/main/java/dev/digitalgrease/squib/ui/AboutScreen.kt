@@ -106,6 +106,16 @@ private fun AboutMain(onBack: () -> Unit, onOpenLink: (String) -> Unit, onLicenc
             }
         }
 
+        Section("What the terms mean") {
+            var primers by rememberSaveable { mutableStateOf(false) }
+            Text("Short explanations of MOA and mil, clicks, zero, wind, BC, Mach, and the timer's times. They work offline.",
+                style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { primers = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 6.dp).testTag("about_primers")) {
+                Text("Open the primers")
+            }
+            if (primers) PrimerDialog(null) { primers = false }
+        }
+
         Section("Privacy") {
             for (line in PRIVACY) Text("• $line", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
         }

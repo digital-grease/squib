@@ -13,6 +13,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onLast
 import com.google.android.apps.common.testing.accessibility.framework.AccessibilityCheckPreset
 import com.google.android.apps.common.testing.accessibility.framework.AccessibilityCheckResult
 import com.google.android.apps.common.testing.accessibility.framework.integrations.espresso.AccessibilityValidator
@@ -105,6 +106,19 @@ open class AccessibilityAuditTest {
         rule.enableAccessibilityChecks(strictValidator())
         try {
             rule.onRoot().tryPerformAccessibilityChecks()
+        } catch (e: Throwable) {
+            findings += "[$screen] ${e.message}"
+        } finally {
+            rule.disableAccessibilityChecks()
+        }
+    }
+
+    /** Audit the topmost window only, such as an open dialog. */
+    private fun auditTop(screen: String) {
+        rule.waitForIdle()
+        rule.enableAccessibilityChecks(strictValidator())
+        try {
+            rule.onAllNodes(isRoot()).onLast().tryPerformAccessibilityChecks()
         } catch (e: Throwable) {
             findings += "[$screen] ${e.message}"
         } finally {
@@ -226,6 +240,16 @@ open class AccessibilityAuditTest {
         rule.onNodeWithTag("open_about").performScrollTo().performClick()
         rule.waitOrDump { tag("about") }
         auditScrolling("About", pages = 4)
+        // Primers open in a dialog: audit its window, the topmost root.
+        rule.onNodeWithTag("about_primers").performScrollTo().performClick()
+        rule.waitOrDump { tag("primer_dialog") }
+        auditTop("Primers list")
+        rule.onNodeWithTag("primer_open_angle-units").performScrollTo().performClick()
+        rule.waitOrDump { tag("angle_converter") }
+        auditTop("Primer with converter")
+        systemBack()
+        systemBack()
+        rule.waitOrDump { !tag("primer_dialog") }
         rule.onNodeWithTag("about_notices").performScrollTo().performClick()
         rule.waitOrDump { has("rusqlite") || has("Squib is built on") }
         auditScrolling("Third-party licences", pages = 2)

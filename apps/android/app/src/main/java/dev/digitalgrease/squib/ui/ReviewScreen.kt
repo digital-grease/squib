@@ -93,6 +93,7 @@ fun ReviewScreen(
             "Times are displayed to 0.01 s. Display precision is not measured accuracy; timing on this phone is experimental.",
             style = MaterialTheme.typography.bodySmall,
         )
+        if (r.mode != "manual_entry") PrimerLink("phone-timing", "Why is phone timing experimental?")
 
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
@@ -102,6 +103,7 @@ fun ReviewScreen(
                 LabeledValue("Last shot", if (r.originResolved) fmtSec(r.lastNs) else "Unavailable")
                 LabeledValue("Splits", if (r.splitsNs.isEmpty()) "n/a" else r.splitsNs.joinToString("  ") { fmtSec(it).removeSuffix(" s") } + " s")
                 if (r.zeroSplits > 0u) Text("${r.zeroSplits} identical timestamps: insufficient resolution", color = MaterialTheme.colorScheme.error)
+                PrimerLink("timer-terms", "What do first shot and splits mean?")
             }
         }
 
@@ -319,6 +321,7 @@ private fun ScoreCard(d: dev.digitalgrease.squib.data.DataController, runId: Str
                 color = if (s.status == "complete") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("score_status"),
             )
+            if (profile?.inputs?.any { it.kind == "points" } == true) PrimerLink("hit-factor", "What is a hit factor?")
             profile?.inputs?.forEach { input ->
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     val unit = when (input.kind) {

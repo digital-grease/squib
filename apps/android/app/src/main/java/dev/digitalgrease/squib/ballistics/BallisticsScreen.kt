@@ -43,9 +43,11 @@ import dev.digitalgrease.squib.core.CardView
 import dev.digitalgrease.squib.core.CoriolisInput
 import dev.digitalgrease.squib.core.LoadInput
 import dev.digitalgrease.squib.core.LoadView
+import dev.digitalgrease.squib.ui.AngleContext
 import dev.digitalgrease.squib.ui.BackButton
 import dev.digitalgrease.squib.ui.Badge
 import dev.digitalgrease.squib.ui.LabeledToggle
+import dev.digitalgrease.squib.ui.PrimerLink
 import dev.digitalgrease.squib.ui.fmtDate
 
 /**
@@ -225,6 +227,7 @@ private fun MainPage(c: BallisticsController, u: BallisticsUnits, onBack: () -> 
                 }) { Text("+") }
             }
             Text("12 o'clock is wind from the target, 3 o'clock from your right.", style = MaterialTheme.typography.bodySmall)
+            PrimerLink("drop-windage", "How much of the wind counts?")
             NumberField(angle, { angle = it }, "Shot angle (degrees, uphill positive)", "shot_angle", Modifier.fillMaxWidth())
         }
 
@@ -235,6 +238,7 @@ private fun MainPage(c: BallisticsController, u: BallisticsUnits, onBack: () -> 
                 NumberField(step, { step = it }, "Step", "range_step", Modifier.weight(1f))
             }
             LabeledToggle("Corrections in mil (off: MOA)", u.mil, { c.setMil(it) }, controlAtEnd = true, tag = "units_mil")
+            PrimerLink("angle-units", "What are mil and MOA?")
         }
 
         Section("Optional effects") {
@@ -337,11 +341,16 @@ private fun RangeCard(r: CardView, u: BallisticsUnits) {
                     if (row.transonic) Text("Below Mach 1.2: less reliable", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            if (r.rows.any { it.transonic }) PrimerLink("transonic", "Why is below Mach 1.2 less reliable?")
             if (r.unreachedM.isNotEmpty()) {
                 Text("Not reached: ${r.unreachedM.joinToString { "${u.fmt(u.distanceFromSi(it), 0)} ${u.distance}" }}", color = MaterialTheme.colorScheme.error)
             }
         }
         if (r.usesOlderData) Text("Made with some older condition values.", color = MaterialTheme.colorScheme.error)
+        // The converter starts from the farthest elevation correction on this card.
+        val far = r.rows.lastOrNull()?.let { AngleContext(kotlin.math.abs(if (u.mil) it.elevationMil else it.elevationMoa), if (u.mil) "mil" else "moa", it.rangeM) }
+        PrimerLink("angle-units", "Reading this card: mil, MOA and the converter", context = far, tag = "primer_card_units")
+        PrimerLink("clicks", "Dial or hold these corrections?")
         Text("Method: ${r.method}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
     }
 }
@@ -375,6 +384,7 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
         if (existing != null) Text("Saving makes version ${existing.version + 1u}; saved range cards keep the version they used.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(name, { name = it.take(80) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("load_name"))
         Text("Ballistic coefficient", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        PrimerLink("bc", "What are BC, G1 and G7?")
         Choice("G7 (boat-tail match and long-range bullets)", g7, "model_g7") { g7 = true }
         Choice("G1 (most published hunting and flat-base bullets)", !g7, "model_g1") { g7 = false }
         NumberField(bc, { bc = it }, "BC (${if (g7) "G7" else "G1"}, as published, lb/in²)", "load_bc", Modifier.fillMaxWidth())
@@ -382,6 +392,7 @@ private fun LoadEditor(c: BallisticsController, u: BallisticsUnits, id: String?,
         NumberField(mv, { mv = it }, "Muzzle velocity (${u.speed}), measured from your rifle", "load_mv", Modifier.fillMaxWidth())
         NumberField(sight, { sight = it }, "Sight height above the bore (${u.small})", "load_sight", Modifier.fillMaxWidth())
         NumberField(zero, { zero = it }, "Zero distance (${u.distance})", "load_zero", Modifier.fillMaxWidth())
+        PrimerLink("zero", "What do zero and sight height do?")
         Text("For spin drift (optional)", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         NumberField(twist, { twist = it }, "Barrel twist, one turn in (${u.small})", "load_twist", Modifier.fillMaxWidth())
         if (twist.isNotBlank()) LabeledToggle("Left-hand twist", leftTwist, { leftTwist = it }, controlAtEnd = true)

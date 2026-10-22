@@ -18,6 +18,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -279,71 +280,72 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { pad ->
                     Box(Modifier.padding(pad).fillMaxSize()) {
-                        val run = reviewRun
-                        when {
-                            run != null -> {
-                                val pv by photoVersion
-                                androidx.compose.runtime.key(run, pv) {
-                                    ReviewScreen(controller, data, run, onBack = { reviewRun = null; controller.refreshHistory(); data.reload() }, onRepeat = {
-                                        reviewRun = null; tab = "timer"; controller.repeat()
-                                    }, onAddPhoto = {
-                                        photoRun = run
-                                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    }, onShare = { json -> shareText("Squib results", json) }, onExportDiagnostic = {
-                                        diagnosticRun = run
-                                        createDiagnostic.launch("squib-diagnostic.zip")
-                                    })
+                        // Primers' converter follows the app's units (plan 8.4).
+                        val usUnits by conditions.usUnits.collectAsState()
+                        CompositionLocalProvider(dev.digitalgrease.squib.ui.LocalUsUnits provides usUnits) {
+                            val run = reviewRun
+                            when {
+                                run != null -> {
+                                    val pv by photoVersion
+                                    androidx.compose.runtime.key(run, pv) {
+                                        ReviewScreen(controller, data, run, onBack = { reviewRun = null; controller.refreshHistory(); data.reload() }, onRepeat = {
+                                            reviewRun = null; tab = "timer"; controller.repeat()
+                                        }, onAddPhoto = {
+                                            photoRun = run
+                                            pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                        }, onShare = { json -> shareText("Squib results", json) }, onExportDiagnostic = {
+                                            diagnosticRun = run
+                                            createDiagnostic.launch("squib-diagnostic.zip")
+                                        })
+                                    }
                                 }
+                                tab == "data" -> DataScreen(
+                                    data,
+                                    onBack = { tab = "history" },
+                                    onExportBackup = { photos, audio, passphrase ->
+                                        backupWithPhotos = photos; backupWithAudio = audio; backupPassphrase = passphrase
+                                        if (passphrase != null) createEncryptedBackup.launch("squib-backup.zip.age") else createBackup.launch("squib-backup.zip")
+                                    },
+                                    onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+                                    onExportCsv = { createCsv.launch("squib-runs.csv") },
+                                    onReportProblem = ::reportProblem,
+                                    onOpenCompatibility = ::openCompatibilityForm,
+                                    onCopyText = { text ->
+                                        copy("Squib compatibility report", text)
+                                        android.widget.Toast.makeText(this@MainActivity, "Report copied.", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    onAbout = { tab = "about" },
+                                )
+                                tab == "about" -> dev.digitalgrease.squib.ui.AboutScreen(onBack = { tab = "data" }, onOpenLink = ::openLink)
+                                tab == "practice" -> PracticeScreen(
+                                    data,
+                                    onStartDrill = { d -> controller.startDrill(d); tab = "timer" },
+                                    onShareDrill = { d, bytes -> shareText("Squib drill: ${d.input.title}", String(bytes)) },
+                                    onImportDrill = { openDrill.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                                    onOpenRun = { reviewRun = it },
+                                    onOpenPlan = { openPlan = it; tab = "plan" },
+                                    onTemplate = { tab = "checklist" },
+                                    onRequestCamera = ::withCamera,
+                                )
+                                tab == "plan" && openPlan != null -> PlanScreen(
+                                    data, walkthrough, openPlan!!,
+                                    onBack = { openPlan = null; tab = "practice"; data.reload() },
+                                    onStartDrill = { d, item, title, strings -> controller.startDrill(d, item, title, strings); tab = "timer" },
+                                    onOpenRun = { reviewRun = it },
+                                )
+                                tab == "checklist" -> ChecklistTemplateScreen(data, onBack = { tab = "practice" })
+                                tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
+                                tab == "history" && openSession != null -> {
+                                    val v by controller.view.collectAsState()
+                                    SessionScreen(data, openSession!!, runActive = v.active, onBack = { openSession = null; data.reload() },
+                                        onOpenRun = { reviewRun = it })
+                                }
+                                tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" },
+                                    onOpenSession = { openSession = it })
+                                tab == "conditions" -> ConditionsScreen(conditions, ::withLocation, onBallistics = { tab = "ballistics" })
+                                tab == "ballistics" -> dev.digitalgrease.squib.ballistics.BallisticsScreen(ballistics, usUnits, onBack = { tab = "conditions"; conditions.reload() })
+                                else -> TimerScreen(controller, data, ::withMic, ::withCamera, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                             }
-                            tab == "data" -> DataScreen(
-                                data,
-                                onBack = { tab = "history" },
-                                onExportBackup = { photos, audio, passphrase ->
-                                    backupWithPhotos = photos; backupWithAudio = audio; backupPassphrase = passphrase
-                                    if (passphrase != null) createEncryptedBackup.launch("squib-backup.zip.age") else createBackup.launch("squib-backup.zip")
-                                },
-                                onImport = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
-                                onExportCsv = { createCsv.launch("squib-runs.csv") },
-                                onReportProblem = ::reportProblem,
-                                onOpenCompatibility = ::openCompatibilityForm,
-                                onCopyText = { text ->
-                                    copy("Squib compatibility report", text)
-                                    android.widget.Toast.makeText(this@MainActivity, "Report copied.", android.widget.Toast.LENGTH_SHORT).show()
-                                },
-                                onAbout = { tab = "about" },
-                            )
-                            tab == "about" -> dev.digitalgrease.squib.ui.AboutScreen(onBack = { tab = "data" }, onOpenLink = ::openLink)
-                            tab == "practice" -> PracticeScreen(
-                                data,
-                                onStartDrill = { d -> controller.startDrill(d); tab = "timer" },
-                                onShareDrill = { d, bytes -> shareText("Squib drill: ${d.input.title}", String(bytes)) },
-                                onImportDrill = { openDrill.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                                onOpenRun = { reviewRun = it },
-                                onOpenPlan = { openPlan = it; tab = "plan" },
-                                onTemplate = { tab = "checklist" },
-                                onRequestCamera = ::withCamera,
-                            )
-                            tab == "plan" && openPlan != null -> PlanScreen(
-                                data, walkthrough, openPlan!!,
-                                onBack = { openPlan = null; tab = "practice"; data.reload() },
-                                onStartDrill = { d, item, title, strings -> controller.startDrill(d, item, title, strings); tab = "timer" },
-                                onOpenRun = { reviewRun = it },
-                            )
-                            tab == "checklist" -> ChecklistTemplateScreen(data, onBack = { tab = "practice" })
-                            tab == "setup" -> SetupScreen(controller, ::withMic, onBack = { tab = "timer" })
-                            tab == "history" && openSession != null -> {
-                                val v by controller.view.collectAsState()
-                                SessionScreen(data, openSession!!, runActive = v.active, onBack = { openSession = null; data.reload() },
-                                    onOpenRun = { reviewRun = it })
-                            }
-                            tab == "history" -> HistoryScreen(controller, data, onOpen = { reviewRun = it }, onData = { tab = "data" },
-                                onOpenSession = { openSession = it })
-                            tab == "conditions" -> ConditionsScreen(conditions, ::withLocation, onBallistics = { tab = "ballistics" })
-                            tab == "ballistics" -> {
-                                val us by conditions.usUnits.collectAsState()
-                                dev.digitalgrease.squib.ballistics.BallisticsScreen(ballistics, us, onBack = { tab = "conditions"; conditions.reload() })
-                            }
-                            else -> TimerScreen(controller, data, ::withMic, ::withCamera, onReview = { reviewRun = it }, onSetup = { tab = "setup" })
                         }
                     }
                 }

@@ -11,12 +11,14 @@
 //! stability, and Coriolis from the Earth's rotation. Not modelled: aerodynamic jump,
 //! wind that changes along the path.
 
+pub mod angle;
 pub mod drag;
 pub mod solver;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use angle::AngleUnit;
 pub use drag::{DragCurve, DragModel};
 use solver::{Model, Sample, at_slant, integrate, sight_coords};
 
@@ -349,10 +351,10 @@ fn points_for(shot: &Shot, zero: f64, ranges: &[f64], dt: f64) -> Result<(Vec<Ra
             drop_m: drop,
             windage_m: windage,
             spin_drift_m,
-            elevation_mil: el * 1000.0,
-            elevation_moa: el.to_degrees() * 60.0,
-            windage_mil: wd * 1000.0,
-            windage_moa: wd.to_degrees() * 60.0,
+            elevation_mil: AngleUnit::Mil.from_rad(el),
+            elevation_moa: AngleUnit::Moa.from_rad(el),
+            windage_mil: AngleUnit::Mil.from_rad(wd),
+            windage_moa: AngleUnit::Moa.from_rad(wd),
             velocity_mps: v,
             mach: s.mach,
             time_s: s.t,

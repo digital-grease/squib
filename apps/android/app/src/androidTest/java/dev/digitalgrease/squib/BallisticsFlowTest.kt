@@ -98,6 +98,17 @@ class BallisticsFlowTest {
             .contains("less reliable")) { "the transonic 1000 yd row is flagged" }
         check(has("Method: squib-pointmass-v1")) { "method shown" }
 
+        // The card's primer starts the converter at its farthest correction (plan 8.5),
+        // and closing it leaves the card as it was.
+        rule.onNodeWithTag("primer_card_units").performScrollTo().performClick()
+        rule.waitOrDump { tag("angle_converter") && has("Started with your range card's farthest elevation correction") }
+        rule.waitOrDump { has("mil at 1000 yd covers") }
+        val sentence = rule.onNodeWithTag("converter_result").fetchSemanticsNode().config[SemanticsProperties.Text].joinToString()
+        val start = sentence.substringBefore(" mil at 1000 yd").toDouble()
+        check(String.format(java.util.Locale.US, "%.1f", start) == "12.0") { "converter starts from the card's 12.0 mil: $sentence" }
+        systemBack()
+        rule.waitOrDump { !tag("primer_dialog") && tag("range_card") }
+
         // Save, then reopen from the saved list.
         type("card_title", "Flow card")
         rule.onNodeWithTag("card_save").performScrollTo().performClick()

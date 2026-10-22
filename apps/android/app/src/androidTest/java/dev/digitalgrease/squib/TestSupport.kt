@@ -31,3 +31,8 @@ fun AndroidComposeTestRule<*, *>.waitOrDump(ms: Long = 5_000, cond: () -> Boolea
         throw e
     }
 }
+
+/** The system Back key, sent to the focused window (a dialog included), as a user presses it. */
+fun systemBack() {
+    androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+}
