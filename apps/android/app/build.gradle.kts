@@ -44,8 +44,8 @@ tasks.named("preBuild") { dependsOn(buildRustCore, copyLicense) }
 // the same code). Both are written as literals because F-Droid's update checker reads them from
 // this file with a regular expression (UpdateCheckData in the F-Droid recipe); the check below
 // keeps the code in step with the name.
-val squibVersion = "0.1.2"
-val squibVersionCode = 102
+val squibVersion = "0.1.3"
+val squibVersionCode = 103
 squibVersion.split(".").map(String::toInt).let { (major, minor, patch) ->
     require(minor < 100 && patch < 100) { "minor and patch must be below 100" }
     require(squibVersionCode == major * 10_000 + minor * 100 + patch) {

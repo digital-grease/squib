@@ -71,6 +71,52 @@ Builds:
       - squibSkipRust=true
       - squibAbi=x86_64
 
+  - versionName: 0.1.3
+    versionCode: 1032
+    commit: v0.1.3
+    subdir: apps/android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y build-essential
+    gradle:
+      - yes
+    srclibs:
+      - rustup@1.28.2
+    prebuild:
+      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain none
+      - cd ../../.. && $HOME/.cargo/bin/rustup toolchain install
+      - $HOME/.cargo/bin/cargo install cargo-ndk --version 4.1.2 --locked
+    build:
+      - export PATH=$HOME/.cargo/bin:$PATH
+      - bash ../../../scripts/build-android-core.sh release arm64-v8a
+    ndk: r28c
+    gradleprops:
+      - squibSkipRust=true
+      - squibAbi=arm64-v8a
+
+  - versionName: 0.1.3
+    versionCode: 1033
+    commit: v0.1.3
+    subdir: apps/android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y build-essential
+    gradle:
+      - yes
+    srclibs:
+      - rustup@1.28.2
+    prebuild:
+      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain none
+      - cd ../../.. && $HOME/.cargo/bin/rustup toolchain install
+      - $HOME/.cargo/bin/cargo install cargo-ndk --version 4.1.2 --locked
+    build:
+      - export PATH=$HOME/.cargo/bin:$PATH
+      - bash ../../../scripts/build-android-core.sh release x86_64
+    ndk: r28c
+    gradleprops:
+      - squibSkipRust=true
+      - squibAbi=x86_64
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 VercodeOperation:
@@ -78,5 +124,5 @@ VercodeOperation:
   - '%c * 10 + 3'
 UpdateCheckData: apps/android/app/build.gradle.kts|val squibVersionCode = (\d+)|.|val
   squibVersion = "(.+)"
-CurrentVersion: 0.1.2
-CurrentVersionCode: 1023
+CurrentVersion: 0.1.3
+CurrentVersionCode: 1033

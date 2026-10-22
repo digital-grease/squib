@@ -1,0 +1,1 @@
+Fixes: a result entered by hand is now labelled Manual on its Review screen instead of "Live (experimental)", and the day-plan list counts only drills toward "done", listing stages and events separately.
