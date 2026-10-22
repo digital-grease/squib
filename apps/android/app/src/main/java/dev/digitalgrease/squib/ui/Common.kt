@@ -64,6 +64,12 @@ fun fmtSec(ns: Long?): String = ns?.let { String.format(Locale.US, "%.2f s", it 
 
 fun fmtDate(utcMs: Long): String = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(utcMs))
 
+fun modeLabel(m: String): String = when (m) {
+    "par_only" -> "Par-only"
+    "manual_entry" -> "Manual"
+    else -> "Live (experimental)"
+}
+
 fun outcomeLabel(o: String?): String = when (o) {
     "complete" -> "Complete"
     "interrupted" -> "Interrupted"

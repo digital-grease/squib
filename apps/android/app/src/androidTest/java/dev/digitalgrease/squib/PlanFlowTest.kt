@@ -3,6 +3,7 @@ package dev.digitalgrease.squib
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -70,6 +71,9 @@ class PlanFlowTest {
         rule.onNodeWithTag("tab_practice").performClick()
         rule.waitUntil(10_000) { has("1 of 1 strings done") }
         rule.waitUntil(5_000) { has("Done") }
+        // The plan list counts drills only; the stage is listed apart.
+        rule.onNodeWithContentDescription("Back to Practice").performScrollTo().performClick()
+        rule.waitUntil(5_000) { has("1 of 1 drill done · 1 other item") }
         rule.onNodeWithTag("tab_timer").performClick()
         rule.resetTimer()
     }

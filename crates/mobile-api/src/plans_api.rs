@@ -16,7 +16,10 @@ pub struct PlanSummaryView {
     pub title: String,
     pub date_local: String,
     pub kind: String,
+    /// All items: drills, stages and events.
     pub items: u32,
+    /// Drill items only; they are the only items that can be done.
+    pub drill_items: u32,
     pub done_items: u32,
 }
 
@@ -179,6 +182,7 @@ impl SquibEngine {
                 let items = self.item_views(&p.id)?;
                 Ok(PlanSummaryView {
                     done_items: items.iter().filter(|i| i.done).count() as u32,
+                    drill_items: items.iter().filter(|i| i.kind == "drill").count() as u32,
                     items: items.len() as u32,
                     id: p.id,
                     title: p.title,

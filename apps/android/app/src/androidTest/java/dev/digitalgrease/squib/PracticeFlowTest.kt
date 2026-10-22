@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,6 +34,8 @@ class PracticeFlowTest {
         // Review opens for the new run with manual events.
         rule.waitUntil(10_000) { rule.onAllNodes(hasTestTag("review_screen")).fetchSemanticsNodes().isNotEmpty() }
         rule.waitUntil(5_000) { has("1.20 s") }
+        // A hand-entered result is labelled manual, not as a live recording.
+        assertFalse(has("Live (experimental)"))
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("score_status")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Points and hit factor").performScrollTo().performClick()
         rule.waitUntil(5_000) { has("Incomplete") }

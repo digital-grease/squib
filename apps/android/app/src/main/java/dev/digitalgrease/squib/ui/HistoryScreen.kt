@@ -203,7 +203,7 @@ fun RunCard(r: dev.digitalgrease.squib.core.RunListItem, onOpen: (String) -> Uni
         Column(Modifier.padding(12.dp)) {
             Text(fmtDate(r.createdUtcMs) + " · " + r.shooterName, fontWeight = FontWeight.Bold)
             FlowRow {
-                Badge(if (r.mode == "par_only") "Par-only" else if (r.mode == "manual_entry") "Manual" else "Live (experimental)")
+                Badge(modeLabel(r.mode))
                 Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
                 if (r.persist != "saved") Badge("Not saved", warning = true)
                 reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }

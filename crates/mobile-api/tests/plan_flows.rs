@@ -116,7 +116,8 @@ fn agenda_progress_comes_from_linked_runs_only() {
     let v = e.load_plan(plan.clone(), Some(9 * 60 + 40)).unwrap();
     assert_eq!((v.items[0].completed, v.items[0].aborted, v.items[0].done), (2, 1, true));
     assert_eq!(v.next_up.unwrap().item_id, stage, "finished items drop out of next up");
-    assert_eq!(e.list_plans().unwrap()[0].done_items, 1);
+    let summary = &e.list_plans().unwrap()[0];
+    assert_eq!((summary.done_items, summary.drill_items, summary.items), (1, 1, 2), "the stage is not counted as a drill");
 
     // Skipping fabricates nothing.
     e.set_item_skipped(stage.clone(), true).unwrap();

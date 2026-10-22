@@ -81,7 +81,7 @@ fun ReviewScreen(
         Text("Review", style = MaterialTheme.typography.headlineMedium)
         Text(fmtDate(r.createdUtcMs))
         FlowRow(Modifier.padding(vertical = 4.dp)) {
-            Badge(if (r.mode == "par_only") "Par-only" else "Live (experimental)")
+            Badge(modeLabel(r.mode))
             Badge(outcomeLabel(r.outcome), warning = r.outcome != "complete")
             reviewLabel(r.reviewState, r.edited)?.let { Badge(it, warning = r.reviewState == "needs_review") }
             if (r.revisionNumber > 0u) Badge("Revision ${r.revisionNumber}")

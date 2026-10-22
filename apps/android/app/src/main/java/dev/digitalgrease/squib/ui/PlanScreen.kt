@@ -49,6 +49,7 @@ import dev.digitalgrease.squib.core.ChecklistView
 import dev.digitalgrease.squib.core.DrillView
 import dev.digitalgrease.squib.core.PlanItemInput
 import dev.digitalgrease.squib.core.PlanItemView
+import dev.digitalgrease.squib.core.PlanSummaryView
 import dev.digitalgrease.squib.core.PlanView
 import dev.digitalgrease.squib.data.DataController
 
@@ -88,7 +89,7 @@ fun PlansSection(d: DataController, onOpenPlan: (String) -> Unit, onTemplate: ()
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(p.title, fontWeight = FontWeight.Bold)
-                    Text("${p.dateLocal} · ${if (p.kind == "match") "Match" else "Practice"} · ${p.doneItems} of ${p.items} drills done",
+                    Text("${p.dateLocal} · ${if (p.kind == "match") "Match" else "Practice"} · ${planProgress(p)}",
                         style = MaterialTheme.typography.bodySmall)
                 }
                 Button(onClick = { onOpenPlan(p.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("open_plan_${p.title}").spoken("Open ${p.title}, ${p.dateLocal}")) { Text("Open") }
@@ -379,4 +380,12 @@ fun WalkthroughBanner(w: dev.digitalgrease.squib.data.Walkthrough, onOpen: () ->
             }
         }
     }
+}
+
+/** Only drill items can be done, so stages and events are counted separately. */
+private fun planProgress(p: PlanSummaryView): String {
+    val others = p.items - p.drillItems
+    val drills = if (p.drillItems > 0u) "${p.doneItems} of ${p.drillItems} ${if (p.drillItems == 1u) "drill" else "drills"} done" else null
+    val rest = if (others > 0u) "$others other ${if (others == 1u) "item" else "items"}" else null
+    return listOfNotNull(drills, rest).joinToString(" · ").ifEmpty { "No items yet" }
 }
