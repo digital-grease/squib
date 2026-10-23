@@ -87,13 +87,19 @@ fun ReviewScreen(
             if (r.revisionNumber > 0u) Badge("Revision ${r.revisionNumber}")
             if (r.uncommittedTailPossible) Badge("Events after last save may be missing", warning = true)
         }
-        Text(startMethodLabel(r.startMethod), style = MaterialTheme.typography.bodyMedium)
-        Text("Clock: ${timestampQualityLabel(r.timestampQuality)}", style = MaterialTheme.typography.bodyMedium)
-        Text(
-            "Times are displayed to 0.01 s. Display precision is not measured accuracy; timing on this phone is experimental.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (r.mode != "manual_entry") PrimerLink("phone-timing", "Why is phone timing experimental?")
+        // Start method, clock and the phone-timing caveat describe this phone's measurement,
+        // so a hand-entered result states its source instead.
+        if (r.mode == "manual_entry") {
+            Text("Times entered by hand; not measured by this phone.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            Text(startMethodLabel(r.startMethod), style = MaterialTheme.typography.bodyMedium)
+            Text("Clock: ${timestampQualityLabel(r.timestampQuality)}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Times are displayed to 0.01 s. Display precision is not measured accuracy; timing on this phone is experimental.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            PrimerLink("phone-timing", "Why is phone timing experimental?")
+        }
 
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {

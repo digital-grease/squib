@@ -36,6 +36,11 @@ class PracticeFlowTest {
         rule.waitUntil(5_000) { has("1.20 s") }
         // A hand-entered result is labelled manual, not as a live recording.
         assertFalse(has("Live (experimental)"))
+        // Its Review states the source and drops the phone-timing lines.
+        rule.waitUntil(5_000) { has("Times entered by hand") }
+        assertFalse(has("Clock:"))
+        assertFalse(has("Start: "))
+        assertFalse(has("timing on this phone is experimental"))
         rule.waitUntil(5_000) { rule.onAllNodes(hasTestTag("score_status")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Points and hit factor").performScrollTo().performClick()
         rule.waitUntil(5_000) { has("Incomplete") }

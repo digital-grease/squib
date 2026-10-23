@@ -67,6 +67,9 @@ class RecordingDiagnosticFlowTest {
         rule.onAllNodes(hasText("Live (experimental)")).onFirst().performClick()
         rule.waitUntil(15_000) { tag("diagnostic_section") }
         rule.onNodeWithTag("diag_play", useUnmergedTree = true).assertExists()
+        // A phone-timed run keeps its start, clock and timing caveat.
+        check(rule.onAllNodes(hasText("Clock:", substring = true)).fetchSemanticsNodes().isNotEmpty())
+        check(rule.onAllNodes(hasText("timing on this phone is experimental", substring = true)).fetchSemanticsNodes().isNotEmpty())
 
         // Export: the save button stays disabled until the consent statement is ticked.
         rule.onNodeWithTag("diag_export").performScrollTo().performClick()
