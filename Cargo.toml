@@ -40,7 +40,7 @@ uuid = { version = "=1.27.0", features = ["v4"] }
 uniffi = "=0.32.2"
 jni-sys = "=0.4.1"
 hound = "=3.5.1"
-zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 base64 = "=0.23.1"
 csv = "=1.4.0"
 flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
