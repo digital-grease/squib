@@ -949,16 +949,19 @@ mod tests {
 
     #[test]
     fn delayed_tick_misses_par_and_overlapping_cues_are_serialized() {
-        let mut m = par_only_running(vec![1000, 1300, 1600], StopPolicy::Manual);
-        // Tick arrives 400 ms after par 1 deadline (start ref 3040 → par1 at 4040).
-        let fx = m.handle(Input::Tick { now_ns: 4_440 * MS }).unwrap();
-        // par 1 (400 ms late) missed; par 2 (100 ms late) plays; par 3 not yet due.
+        let mut m = par_only_running(vec![1000, 1600, 2200], StopPolicy::Manual);
+        // Tick arrives 750 ms after par 1 deadline (start ref 3040 → par1 at 4040).
+        let fx = m.handle(Input::Tick { now_ns: 4_790 * MS }).unwrap();
+        // par 1 (750 ms late) missed; par 2 (150 ms late) plays; par 3 not yet due.
         assert!(fx.iter().any(|e| matches!(e, Effect::Quality(q) if q.kind == QualityKind::CueMissed)));
         let plays: Vec<_> = fx.iter().filter(|e| matches!(e, Effect::PlayCue { .. })).collect();
         assert_eq!(plays.len(), 1);
         assert!(matches!(plays[0], Effect::PlayCue { par_index: Some(1), .. }));
-        // Par 3 due at 4640 while par 2 plays until 4560: plays once due.
-        let fx = m.handle(Input::Tick { now_ns: 4_640 * MS }).unwrap();
+        // Par 3 is due at 5240 while par 2's 500 ms beep plays until 5290: it waits, then
+        // plays 50 ms late rather than overlapping.
+        let fx = m.handle(Input::Tick { now_ns: 5_240 * MS }).unwrap();
+        assert!(!fx.iter().any(|e| matches!(e, Effect::PlayCue { .. })));
+        let fx = m.handle(Input::Tick { now_ns: 5_290 * MS }).unwrap();
         assert!(fx.iter().any(|e| matches!(e, Effect::PlayCue { par_index: Some(2), .. })));
         assert_eq!(m.cues.iter().filter(|c| c.missed).count(), 1);
     }

@@ -903,7 +903,13 @@ impl SquibEngine {
                 && let Ok(Some(c)) = self.read().latest_calibration(&sig)
                 && &c.id == cid
             {
-                d = c.detector_config.clone();
+                // The profile's thresholds, on the current algorithm: a profile saved
+                // under v1 measured impulses, which the v2 cue-tone floor hold does not
+                // change (ADR-067).
+                d = DetectorConfig {
+                    algorithm_version: squib_domain::DETECTOR_ALGORITHM_VERSION.into(),
+                    ..c.detector_config.clone()
+                };
                 calibration_id = Some(c.id);
             }
             if let Some(t) = req.threshold_db {

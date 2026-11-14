@@ -192,14 +192,14 @@ pub fn corpus() -> Vec<SynthSpec> {
     let r = 48_000;
     let mut s = base(
         "fast_shot_during_cue",
-        "Impulse 90 ms after cue onset (inside the 150 ms cue) and one 30 ms after cue end.",
+        "Impulse 90 ms after cue onset (inside the 300 ms cue) and one 30 ms after cue end.",
         r,
         3.0,
         3,
     );
     s.cues.push(cue(r, CueKind::Start, 1000.0, 0.1));
     s.shots.push(shot(r, 1090.0));
-    s.shots.push(shot(r, 1180.0));
+    s.shots.push(shot(r, 1000.0 + f64::from(CueKind::Start.duration_ms()) + 30.0));
     v.push(s);
 
     let r = 48_000;

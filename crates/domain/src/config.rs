@@ -30,19 +30,21 @@ pub enum CueKind {
 }
 
 impl CueKind {
-    /// Template version tag persisted with every cue observation.
+    /// Template version tag persisted with every cue observation. The cues are a shot
+    /// timer's beep (ADR-067); runs saved before it carry the earlier swept cues' tags,
+    /// `start-chirp-v1` and `par-chirp-v1` (ADR-019).
     pub fn template_version(self) -> &'static str {
         match self {
-            CueKind::Start => "start-chirp-v1",
-            CueKind::Par => "par-chirp-v1",
+            CueKind::Start => "start-tone-v1",
+            CueKind::Par => "par-tone-v1",
         }
     }
 
-    /// Template duration in milliseconds.
+    /// Template duration in milliseconds: a PACT Club Timer III's start and par beeps.
     pub fn duration_ms(self) -> u32 {
         match self {
-            CueKind::Start => 150,
-            CueKind::Par => 120,
+            CueKind::Start => 300,
+            CueKind::Par => 500,
         }
     }
 
@@ -198,7 +200,10 @@ pub struct DetectorConfig {
     pub initial_floor_dbfs: f32,
 }
 
-pub const DETECTOR_ALGORITHM_VERSION: &str = "squib-onset-v1";
+/// v2 (ADR-067) holds the noise floor while the shot-timer cue tone dominates; otherwise
+/// it is v1 (ADR-020), which configurations naming it still get.
+pub const DETECTOR_ALGORITHM_VERSION: &str = "squib-onset-v2";
+pub const DETECTOR_ALGORITHM_VERSION_V1: &str = "squib-onset-v1";
 
 impl Default for DetectorConfig {
     fn default() -> Self {
@@ -498,13 +503,14 @@ mod tests {
             assert_ne!(c.config_hash(), sound.config_hash());
             let back: RunConfig = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
             assert_eq!(back.cue_channel, ch);
+            // Since the cues became 500 ms shot-timer beeps (ADR-067), the spacing every
+            // channel keeps is wider than the flash limit, so screen cues need no rule of
+            // their own; the check stays in case the beeps shorten again.
+            assert!(SCREEN_CUE_MIN_SPACING_MS <= CueKind::Par.duration_ms() + CUE_GAP_MS);
             let mut close = c.clone();
             close.pars_ms = vec![1000, 1300];
-            match ch {
-                CueChannel::Screen => assert_eq!(close.validate(), Err(ConfigError::ScreenCuesTooClose(1300))),
-                _ => assert_eq!(close.validate(), Ok(()), "only flashing is limited"),
-            }
-            close.pars_ms = vec![1000, 1350];
+            assert_eq!(close.validate(), Err(ConfigError::ParCuesOverlap { first_ms: 1000, second_ms: 1300 }), "{ch:?}");
+            close.pars_ms = vec![1000, 1600];
             assert_eq!(close.validate(), Ok(()));
             c.source_mode = SourceMode::PhoneLive;
             c.detector = Some(DetectorConfig::default());
@@ -535,7 +541,11 @@ mod tests {
         assert_eq!(validate_pars(&[100]), Err(ConfigError::ParOverlapsStartCue(100)));
         assert!(matches!(validate_pars(&[1000, 1100]), Err(ConfigError::ParCuesOverlap { .. })));
         assert_eq!(validate_pars(&[1000, 900]), Err(ConfigError::ParsNotIncreasing));
-        assert!(validate_pars(&[250, 470, 690]).is_ok());
+        // The boundaries for the shot-timer beeps (ADR-067): 300 ms start, 500 ms pars, and
+        // 100 ms of silence after each.
+        assert!(validate_pars(&[400, 1000, 1600]).is_ok());
+        assert_eq!(validate_pars(&[399]), Err(ConfigError::ParOverlapsStartCue(399)));
+        assert_eq!(validate_pars(&[400, 999]), Err(ConfigError::ParCuesOverlap { first_ms: 400, second_ms: 999 }));
     }
 
     #[test]

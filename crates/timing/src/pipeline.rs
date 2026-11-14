@@ -352,7 +352,7 @@ impl Pipeline {
             if force || self.processed_end >= need_end {
                 let s = self.searches.remove(i);
                 let incomplete = s.incomplete || s.buf_first + (s.buf.len() as i64) < need_end;
-                let m = match_cue(&s.req, &s.template, &s.buf, s.buf_first, incomplete);
+                let m = match_cue(&s.req, &s.template, &s.buf, s.buf_first, incomplete, self.fmt.sample_rate_hz);
                 out(DspEvent::Cue(m));
             } else {
                 i += 1;

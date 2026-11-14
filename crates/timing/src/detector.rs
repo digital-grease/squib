@@ -1,9 +1,15 @@
-//! Transparent streaming impulse-onset detector (`squib-onset-v1`).
+//! Transparent streaming impulse-onset detector (`squib-onset-v2`; `squib-onset-v1`
+//! for configurations that name it).
 //!
 //! Per sample:
 //! 1. One-pole high-pass (`highpass_hz`) removes rumble/handling.
 //! 2. Fast mean-square envelope (τ 0.25 ms), medium envelope (τ 15 ms), and a gated
 //!    asymmetric noise floor (rise τ 1 s, fall τ 50 ms) that freezes during events.
+//!    In v2 it also holds while the shot-timer tone ([`CUE_TONE_HZ`]) carries at least
+//!    half the medium energy (ADR-067): a 300 ms start or 500 ms par beep, or its echo,
+//!    is the app's own sound, not background, and learning it would cost the next shot
+//!    its margin. Broadband sound (shots, echoes, wind, chatter) never meets that test,
+//!    so everything else is as in v1.
 //! 3. Trigger when fast energy exceeds the floor by `threshold_db` **and** exceeds the
 //!    medium envelope from 2 ms earlier by `attack_min_db`. The attack criterion
 //!    rejects slow onsets such as the ramped app cue sustain and steady noise.
@@ -20,9 +26,19 @@
 //! Duplicate protection is a short `min_gap_ms` after a peak, not an echo blackout:
 //! quieter impulses shortly after a louder one are kept as `PossibleEcho` uncertain.
 
-use squib_domain::{Candidate, CandidateFeatures, CandidateReason, DetectorConfig, DetectorSuggestion};
+use squib_domain::{
+    Candidate, CandidateFeatures, CandidateReason, DETECTOR_ALGORITHM_VERSION_V1, DetectorConfig, DetectorSuggestion,
+};
+
+use crate::cue::CUE_TONE_HZ;
 
 const FAST_TAU_S: f64 = 0.000_25;
+/// Smoothing of the demodulated cue tone (v2 floor hold): twice the medium envelope's,
+/// because it smooths amplitude, not energy, so a dying tone keeps its share of the
+/// medium energy and the hold lasts through the beep's echo.
+const TONE_TAU_S: f64 = 2.0 * MED_TAU_S;
+/// The floor holds while the cue tone carries at least this share of the medium energy.
+const TONE_HOLD_SHARE: f64 = 0.5;
 const MED_TAU_S: f64 = 0.015;
 const FLOOR_UP_TAU_S: f64 = 1.0;
 const FLOOR_DOWN_TAU_S: f64 = 0.05;
@@ -122,6 +138,11 @@ pub struct OnsetDetector {
     freeze_until: i64,
     recent: Vec<(i64, f32)>,
     next_seq: u64,
+    /// v2: hold the floor while the cue tone dominates.
+    tone_hold: bool,
+    tone_w: f64,
+    a_tone: f64,
+    tone: (f64, f64),
 }
 
 impl OnsetDetector {
@@ -165,6 +186,10 @@ impl OnsetDetector {
             freeze_until: 0,
             recent: Vec::with_capacity(8),
             next_seq: 0,
+            tone_hold: cfg.algorithm_version != DETECTOR_ALGORITHM_VERSION_V1,
+            tone_w: 2.0 * std::f64::consts::PI * CUE_TONE_HZ / r,
+            a_tone: alpha(TONE_TAU_S, r),
+            tone: (0.0, 0.0),
             cfg,
         }
     }
@@ -216,8 +241,16 @@ impl OnsetDetector {
         self.med_hist[mh] = self.med;
         self.ring.put(f, y, x);
 
+        let tone_dominant = self.tone_hold && {
+            // Demodulate at the cue tone; a sinusoid of mean square P gives |z|^2 = P/2.
+            let (s, c) = (self.tone_w * (f - self.first_frame.unwrap_or(f)) as f64).sin_cos();
+            let yd = f64::from(y);
+            self.tone.0 += self.a_tone * (yd * c - self.tone.0);
+            self.tone.1 += self.a_tone * (-yd * s - self.tone.1);
+            2.0 * (self.tone.0 * self.tone.0 + self.tone.1 * self.tone.1) >= TONE_HOLD_SHARE * self.med
+        };
         let idle = self.collecting.is_none();
-        if idle && f >= self.freeze_until {
+        if idle && f >= self.freeze_until && !tone_dominant {
             let a = if self.med > self.floor { self.a_up } else { self.a_down };
             self.floor = (self.floor + a * (self.med - self.floor)).max(MIN_FLOOR_MS);
         }
@@ -360,6 +393,97 @@ impl OnsetDetector {
             detector_score: score,
             algorithm_version: self.cfg.algorithm_version.clone(),
             config_hash: self.config_hash.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cue::cue_template;
+    use squib_domain::{CueKind, DETECTOR_ALGORITHM_VERSION};
+
+    const RATE: u32 = 48_000;
+
+    fn noise(len: usize, rms: f32, seed: u32) -> Vec<f32> {
+        let mut s = seed;
+        (0..len)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 17;
+                s ^= s << 5;
+                (s as f32 / u32::MAX as f32 - 0.5) * rms * 3.46
+            })
+            .collect()
+    }
+
+    fn detector(version: &str) -> OnsetDetector {
+        OnsetDetector::new(DetectorConfig { algorithm_version: version.into(), ..DetectorConfig::default() }, RATE)
+    }
+
+    /// Run `x` through the detector and return its candidates and the floor at each of
+    /// `probes` (frame indices).
+    fn run(d: &mut OnsetDetector, x: &[f32], probes: &[usize]) -> (Vec<Candidate>, Vec<f32>) {
+        let mut out = Vec::new();
+        let mut floors = Vec::new();
+        let mut at = 0;
+        for &p in probes {
+            d.process(at as i64, &x[at..p], &mut |c| out.push(c));
+            floors.push(d.floor_dbfs());
+            at = p;
+        }
+        d.process(at as i64, &x[at..], &mut |c| out.push(c));
+        (out, floors)
+    }
+
+    #[test]
+    fn v2_does_not_learn_the_app_beep_as_background_and_v1_did() {
+        // Quiet range, then a 500 ms par beep as loud as the phone hears its own speaker.
+        let par = cue_template(CueKind::Par, RATE);
+        let mut x = noise(96_000, 0.0015, 7);
+        let onset = 24_000;
+        for (i, v) in par.iter().enumerate() {
+            x[onset + i] += 0.1 * v;
+        }
+        let end = onset + par.len();
+        let probes = [onset - 1, end + 960];
+        let (_, v1) = run(&mut detector(DETECTOR_ALGORITHM_VERSION_V1), &x, &probes);
+        let (_, v2) = run(&mut detector(DETECTOR_ALGORITHM_VERSION), &x, &probes);
+        // 20 ms after the beep ends: v1's floor has climbed most of the way to the beep,
+        // v2's is where it was before the beep.
+        assert!(v1[1] - v1[0] > 15.0, "v1 floor {:.1} -> {:.1} dBFS", v1[0], v1[1]);
+        assert!((v2[1] - v2[0]).abs() < 1.0, "v2 floor {:.1} -> {:.1} dBFS", v2[0], v2[1]);
+    }
+
+    #[test]
+    fn v2_is_v1_for_everything_but_the_cue_tone() {
+        // Broadband sound: noise that steps up 20 dB (the floor must still learn it),
+        // impulses before and after the step, and an off-pitch tone.
+        let mut x = noise(144_000, 0.001, 11);
+        for (i, v) in noise(72_000, 0.01, 12).iter().enumerate() {
+            x[72_000 + i] += v;
+        }
+        for (k, at) in [20_000usize, 50_000, 100_000, 130_000].iter().enumerate() {
+            for i in 0..1200 {
+                x[at + i] += 0.8 * (-(i as f32) / 200.0).exp() * if (i + k) % 2 == 0 { 1.0 } else { -1.0 };
+            }
+        }
+        for i in 0..14_400 {
+            x[30_000 + i] += 0.05 * (2.0 * std::f32::consts::PI * 1500.0 * i as f32 / RATE as f32).sin();
+        }
+        let probes = [71_999, 100_000, 143_000];
+        let (c1, f1) = run(&mut detector(DETECTOR_ALGORITHM_VERSION_V1), &x, &probes);
+        let (c2, f2) = run(&mut detector(DETECTOR_ALGORITHM_VERSION), &x, &probes);
+        assert_eq!(f1, f2, "floors");
+        assert!(f2[2] - f2[0] > 15.0, "the floor still follows a real change in background");
+        let strip = |c: &[Candidate]| {
+            c.iter()
+                .map(|c| (c.onset_frame, c.peak_frame, c.features.clone(), c.suggestion, c.reasons.clone(), c.detector_score))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(strip(&c1), strip(&c2));
+        for at in [20_000i64, 50_000, 100_000, 130_000] {
+            assert!(c2.iter().any(|c| (c.onset_frame - at).abs() <= 2), "impulse at {at}: {:?}", strip(&c2));
         }
     }
 }
