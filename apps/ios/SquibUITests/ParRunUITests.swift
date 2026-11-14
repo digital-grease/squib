@@ -54,7 +54,8 @@ final class ParRunUITests: XCTestCase {
         let pars = app.textFields["pars"]
         XCTAssertTrue(pars.waitForExistence(timeout: 10))
         pars.tap()
-        pars.typeText("0.5, 1")
+        // Pars at least 0.6 s apart: each beep is 500 ms plus 100 ms of quiet (ADR-067).
+        pars.typeText("0.5, 1.1")
         waitFor(app.staticTexts["phase"], label: "Ready")
         app.buttons["start"].tap()
         waitFor(app.staticTexts["phase"], label: "Saved")
