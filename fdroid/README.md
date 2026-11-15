@@ -2,6 +2,8 @@
 
 Owner ruling D9: Squib is distributed through GitHub Releases and F-Droid, not Google Play. The owner has approved F-Droid submission (D18).
 
+Submission status: submitted as fdroiddata merge request !53466 on 2026-10-21. F-Droid closed it unmerged on 2026-10-31 because an app must have been maintained for more than three months before it is included. The recipe here is kept current with each release so it can be resubmitted, no earlier than late January 2027 (three months after the first public release, 0.1.2).
+
 - `dev.digitalgrease.squib.yml` is the recipe F-Droid keeps in its own [fdroiddata](https://gitlab.com/fdroid/fdroiddata) repository. The copy submitted there drops the header comment and gives each build's `commit` as the full hash of the release tag, never the tag name.
 - The store listing (title, descriptions, changelogs, icon and screenshots) is read from `fastlane/metadata/android/en-US/` in this repository at the built commit. The summary must stay under 80 characters.
 - F-Droid builds one APK per ABI (`-PsquibAbi=arm64-v8a` and `-PsquibAbi=x86_64`). Each gets version code `code * 10 + 2` or `code * 10 + 3`, where `code` is `squibVersionCode`; the GitHub Release keeps one APK for both ABIs at `code`. Changelogs are named by version code, so each release needs three copies (for 0.1.2: `102.txt`, `1022.txt`, `1023.txt`); the release workflow checks they exist.
